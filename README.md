@@ -1,92 +1,92 @@
-# Personal AI Commerce Assistant - FastAPI Backend
+# AI Commerce Assistant 🛍️🤖
 
-This is the self-contained, from-scratch Python **FastAPI Backend** for the next-generation **Personal AI Commerce Assistant** powered by **Google GenAI SDK** (Gemini).
+A production-ready, full-stack AI shopping assistant that curates Amazon products using Retrieval-Augmented Generation (RAG). Built with a modern **React SPA** frontend and a **FastAPI** backend, backed by **AWS DynamoDB**, **AWS Cognito**, and **AWS S3**.
 
-It acts as a household commerce manager, automating product search, managing user profiles (allergies, fitness goals, green/healthy modes), keeping track of shopping carts across sessions, and simulating weather/calendar triggers for proactive refills.
+## 🏗️ Architecture
 
----
-
-## 🛠️ Tech Stack & Architecture
-
-- **Web Framework**: FastAPI (Uvicorn server)
-- **AI Orchestrator**: Google GenAI SDK (`google-generativeai`)
-- **Model**: `gemini-1.5-flash` (supports native python function/tool calling)
-- **Database**: File-based `products.json` compiled with 2,100+ items across 7 core categories. Carts and sessions are handled in-memory.
-- **Search Engine**: `search.py` (Hybrid: local keyword TF-IDF indexing + allergy exclusion filters, with hooks for Amazon OpenSearch connection).
+- **Frontend**: React 18, Vite, TypeScript, Tailwind CSS, React Router, React Query.
+- **Backend**: FastAPI, Uvicorn, LangChain.
+- **Authentication**: AWS Cognito (Secure HttpOnly cookies + JWT).
+- **Database**: AWS DynamoDB (Users, ChatSessions, Messages, SavedProducts).
+- **Storage**: AWS S3 (Product catalogs, Embeddings).
+- **AI / RAG**: Local LLMs via Ollama, FAISS vector store.
 
 ---
 
-## 📂 Project Structure
+## 🚀 Quick Start Guide
 
+### 1. Prerequisites
+- Python 3.10+
+- Node.js 18+
+- [Ollama](https://ollama.ai/) installed and running locally.
+- AWS Account with IAM credentials.
+
+### 2. AWS Setup
+Ensure you have the following resources created in AWS:
+- **Cognito User Pool** and App Client.
+- **DynamoDB Tables**: `Users`, `ChatSessions`, `Messages`, `SavedProducts` (all with `id` or `session_id` partition keys).
+- **S3 Bucket** containing your product data and `.npy` embeddings.
+- **IAM User** with permissions for Cognito, DynamoDB, and S3.
+
+### 3. Environment Variables
+Create a `.env` file in the root directory:
+```env
+AWS_REGION="us-east-1"
+AWS_ACCESS_KEY_ID="your-access-key"
+AWS_SECRET_ACCESS_KEY="your-secret-key"
+
+COGNITO_USER_POOL_ID="your-pool-id"
+COGNITO_CLIENT_ID="your-client-id"
+COGNITO_CLIENT_SECRET="your-client-secret"
+
+DYNAMODB_USERS_TABLE="Users"
+DYNAMODB_SESSIONS_TABLE="ChatSessions"
+DYNAMODB_MESSAGES_TABLE="Messages"
+DYNAMODB_SAVED_PRODUCTS_TABLE="SavedProducts"
+
+OLLAMA_MODEL="qwen2.5:7b" # Or whichever model you are using
 ```
-backend/
-├── main.py              # FastAPI server entrypoint (defines routes)
-├── agent.py             # Gemini agent wrapper, registers and manages tool loop
-├── database.py          # Catalog generator & in-memory session states (carts, profiles)
-├── search.py            # Hybrid search engine (local search & OpenSearch integrations)
-├── schemas.py           # Pydantic models for API request/response validation
-├── requirements.txt     # Backend python dependencies
-├── run.sh               # Shell script to install dependencies and run the server
-└── test_agent_dryrun.py # CLI script to test agent and tool executions directly
-```
 
----
-
-## 🚀 Getting Started
-
-### 1. Configure API Key
-Create a `.env` file in this directory or export your Gemini API key:
+### 4. Running the Backend (FastAPI)
+Open a terminal and run:
 ```bash
-export GEMINI_API_KEY="your-api-key-here"
+# Create and activate virtual environment
+python -m venv venv
+.\venv\Scripts\activate  # Windows
+# source venv/bin/activate  # Mac/Linux
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Start the server (runs on http://localhost:8000)
+python chat_agent.py
 ```
 
-### 2. Run the Server
-Use the provided startup script:
+### 5. Running the Frontend (React)
+Open a separate terminal and run:
 ```bash
-chmod +x run.sh
-./run.sh
+cd frontend
+
+# Install dependencies
+npm install
+
+# Start the Vite development server (runs on http://localhost:5173)
+npm run dev
 ```
-The server will start at `http://localhost:8000`. You can access the auto-generated documentation and test page at `http://localhost:8000/docs`.
+
+### 6. Running the Local LLM
+Ensure Ollama is running in the background:
+```bash
+ollama serve
+# Make sure you have pulled your target model:
+# ollama pull qwen2.5:7b
+```
 
 ---
 
-## 🧪 Testing the Agent via CLI
+## 💻 Features
 
-You can perform a dry-run test of the agent's tool execution from your terminal without starting the server:
-
-```bash
-python3 test_agent_dryrun.py --api-key "your-api-key" --query "Recommend some breakfast spreads. Make sure they are peanut-free."
-```
-
----
-
-## 🛰️ REST API Endpoints
-
-### 💬 Chat / Agent
-- **`POST /api/chat`**: Handles the conversation. Executes the Gemini reasoning loop and processes tool calls automatically.
-  - **Headers**: `x-gemini-key: <api_key>` (optional if `GEMINI_API_KEY` environment variable is set)
-  - **Body**:
-    ```json
-    {
-      "message": "User query here",
-      "session_id": "session-unique-id"
-    }
-    ```
-
-### 📦 Product Catalog
-- **`GET /api/products`**: Search and list items. Supports category filter and automatically excludes active user profile allergens.
-- **`GET /api/products/{productId}`**: Retrieve full details of a specific item.
-
-### 👤 Profile Management
-- **`GET /api/profile?session_id=...`**: Fetch active household parameters.
-- **`POST /api/profile?session_id=...`**: Update allergies, budget, workout goals, and green/healthy modes.
-
-### 🛒 Cart & Checkout
-- **`GET /api/cart?session_id=...`**: View current items, subtotal, and budget checkpoints.
-- **`POST /api/cart?session_id=...`**: Add or remove quantities.
-- **`POST /api/checkout?session_id=...`**: Place the order, deduct stock, and return receipt.
-
-### 🌤️ Simulator Triggers
-- **`GET /api/simulator/weather`** / **`POST /api/simulator/weather`**
-- **`GET /api/simulator/events`** / **`POST /api/simulator/events`**
-- **`GET /api/simulator/inventory`** / **`POST /api/simulator/inventory`**
+- **Secure Authentication**: Full signup, login, and silent token refresh flows using AWS Cognito.
+- **Persistent Chat History**: All conversations are stored in DynamoDB and grouped by session.
+- **Smart Recommendations**: Uses FAISS vector search to find relevant products from S3 and feeds them to the LLM to generate contextual shopping advice.
+- **Modern UI**: A responsive, dark-mode inspired chat interface with dedicated product display panels.
