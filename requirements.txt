@@ -1,7 +1,12 @@
 fastapi
 uvicorn
 google-generativeai
+ollama
 opensearch-py
 pydantic
 requests
 python-dotenv
+sentence-transformers
+boto3
+python-jose[cryptography]
+httpx

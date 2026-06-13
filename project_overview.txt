@@ -1,0 +1,759 @@
+# TASK.TXT
+
+# Project Name
+
+Personal AI Commerce Assistant
+
+---
+
+# Project Overview
+
+Build a next-generation AI-powered commerce assistant that transforms shopping from a traditional search-based experience into a conversational, personalized, proactive experience.
+
+Traditional e-commerce platforms require users to:
+
+* Search products
+* Compare products
+* Read reviews
+* Manage carts
+* Repeat monthly purchases
+
+This project aims to eliminate these friction points.
+
+Instead of asking:
+
+"What product do you want?"
+
+The assistant asks:
+
+"What do you need?"
+
+The system should understand:
+
+* User preferences
+* Family requirements
+* Shopping habits
+* Health preferences
+* Calendar events
+* Weather conditions
+* Purchase history
+* Budget constraints
+* Lifestyle information
+
+and proactively help users discover, plan, and purchase products.
+
+---
+
+# Primary Goal
+
+Create an AI assistant capable of:
+
+* Understanding user intent
+* Recommending products
+* Creating complete shopping carts
+* Explaining recommendations
+* Managing addresses
+* Managing carts
+* Performing checkout through chat
+* Learning user behavior over time
+
+The experience should feel like:
+
+ChatGPT + Amazon + Personal Household Assistant
+
+---
+
+# Core Product Philosophy
+
+Users should not need to search for products.
+
+Users should simply describe:
+
+* Problems
+* Goals
+* Situations
+* Events
+* Requirements
+
+Examples:
+
+"I need groceries for a family of four."
+
+"Planning a birthday party."
+
+"Need healthy breakfast options."
+
+"Going trekking this weekend."
+
+"My child starts school next week."
+
+The assistant should convert these situations into actionable shopping recommendations and shopping carts.
+
+---
+
+# User Profile System
+
+The assistant should maintain a rich understanding of users.
+
+Optional Profile Information:
+
+* Age
+* Gender
+* Location
+* Occupation
+* Lifestyle
+
+Family Information:
+
+* Family size
+* Children count
+* Elderly family members
+* Pets
+
+Shopping Preferences:
+
+* Favorite brands
+* Budget range
+* Preferred categories
+
+Dietary Preferences:
+
+* Vegetarian
+* Non-Vegetarian
+* Vegan
+* Jain
+* Keto
+
+Health Preferences:
+
+* Healthy Mode
+
+Environmental Preferences:
+
+* Green Mode
+
+---
+
+# Health Awareness
+
+Users may optionally specify:
+
+* Food allergies
+* Dietary restrictions
+* Lactose intolerance
+* Gluten intolerance
+* Nut allergies
+* Ingredient restrictions
+
+Assistant must consider these preferences while recommending products.
+
+Example:
+
+User has peanut allergy.
+
+Assistant should avoid recommending products containing peanuts.
+
+---
+
+# Workout Integration
+
+Users can optionally upload or define:
+
+* Workout plans
+* Fitness goals
+
+Examples:
+
+* Weight loss
+* Muscle gain
+* Marathon preparation
+
+Assistant should recommend:
+
+* Protein products
+* Recovery products
+* Hydration products
+* Fitness accessories
+
+based on goals.
+
+---
+
+# Strava Integration
+
+Optional integration with Strava.
+
+Use activity data to understand:
+
+* Running frequency
+* Cycling activity
+* Fitness goals
+
+Generate shopping suggestions accordingly.
+
+---
+
+# Purchase History Awareness
+
+The assistant learns from:
+
+* Past purchases
+* Shopping frequency
+* Brand preferences
+* Consumption patterns
+
+Capabilities:
+
+* Predict future needs
+* Recommend replenishment
+* Suggest repeat purchases
+* Personalize recommendations
+
+---
+
+# Household Inventory Awareness
+
+Estimate inventory levels using:
+
+* Purchase history
+* Consumption patterns
+* Family size
+
+Examples:
+
+* Milk
+* Eggs
+* Rice
+* Pet food
+* Cleaning supplies
+
+Predict when products may run low.
+
+---
+
+# Calendar Integration
+
+Connect with user calendar.
+
+Recognize:
+
+* Birthdays
+* Anniversaries
+* Vacations
+* Festivals
+* Monthly grocery schedules
+* Family events
+
+Generate shopping recommendations proactively.
+
+Example:
+
+Birthday detected.
+
+Generate:
+
+* Cake
+* Decorations
+* Snacks
+* Gifts
+
+Vacation detected.
+
+Pause recurring purchases.
+
+Reduce grocery suggestions.
+
+Suggest travel essentials.
+
+---
+
+# Event-Based Shopping
+
+Support shopping based on events.
+
+Examples:
+
+* Birthday Party
+* Family Picnic
+* Housewarming
+* Office Gathering
+* Movie Night
+* Trekking Trip
+* Camping Trip
+
+Assistant should automatically build shopping plans and shopping carts.
+
+---
+
+# Weather-Aware Recommendations
+
+Monitor weather forecasts.
+
+Examples:
+
+Heavy Rain:
+
+* Umbrellas
+* Raincoats
+* Waterproof bags
+
+Heat Wave:
+
+* Electrolytes
+* Water bottles
+* Sunscreen
+
+Cold Weather:
+
+* Blankets
+* Winter clothing
+* Room heaters
+
+Goal:
+
+Prepare users before needs arise.
+
+---
+
+# Context Cards
+
+The assistant should recognize common situations.
+
+Examples:
+
+* Hostel Party
+* Rainy Day Medicine
+* Last-Minute Birthday Gift
+* Office Snack Run
+* Weekend Road Trip
+* Trekking Essentials
+
+Display prebuilt bundles and recommendations.
+
+This should feel like:
+
+"The system understands the moment."
+
+---
+
+# Panic Purchase Mode
+
+Urgent shopping mode.
+
+Examples:
+
+* Child has fever
+* Power outage
+* Unexpected guests
+* Forgotten birthday
+
+Assistant should:
+
+* Prioritize urgency
+* Create immediate cart
+* Recommend fastest available products
+
+---
+
+# One Question Then Buy
+
+Goal:
+
+Reduce shopping friction.
+
+Example:
+
+User:
+
+"Need breakfast for a family of 5."
+
+Assistant:
+
+Ask minimum required questions.
+
+Generate cart immediately.
+
+---
+
+# Budget-Conscious Shopping
+
+Support monthly budgets.
+
+Categories:
+
+* Groceries
+* Personal Care
+* Pet Care
+* Household Supplies
+
+Capabilities:
+
+* Budget tracking
+* Cheaper alternatives
+* Smart substitutions
+
+---
+
+# Sustainability Mode
+
+Green Mode
+
+Prioritize:
+
+* Eco-friendly products
+* Sustainable packaging
+* Reusable products
+
+---
+
+# Smart Product Discovery
+
+Support intent-based discovery.
+
+Examples:
+
+"I need healthy snacks."
+
+"I need trekking essentials."
+
+"I need products for muscle gain."
+
+Assistant should understand goals instead of keywords.
+
+---
+
+# Review Intelligence
+
+Analyze reviews.
+
+Generate:
+
+Pros
+
+Cons
+
+Common complaints
+
+Common praises
+
+Do not force users to read hundreds of reviews.
+
+---
+
+# Product Recommendation Explainability
+
+For every recommended product:
+
+Show reason.
+
+Examples:
+
+"Recommended because you purchased similar products previously."
+
+"Popular among users with similar preferences."
+
+"Matches your healthy lifestyle settings."
+
+"Fits your budget."
+
+"Suitable for rainy weather conditions."
+
+---
+
+# Brand Substitution
+
+If preferred brand unavailable:
+
+Suggest closest alternatives.
+
+Example:
+
+Preferred:
+
+Amul
+
+Unavailable.
+
+Recommend:
+
+Mother Dairy
+
+with explanation.
+
+---
+
+# Product Availability Transparency
+
+If no suitable product is found:
+
+Clearly state:
+
+"No relevant products were found."
+
+Avoid hallucinated recommendations.
+
+Suggest:
+
+* Similar products
+* Alternative brands
+* Related categories
+
+---
+
+# Conversational Shopping
+
+Examples:
+
+"Add milk."
+
+"Remove chips."
+
+"Increase quantity to 3."
+
+"Replace with cheaper option."
+
+Everything should be possible through chat.
+
+---
+
+# Conversational Checkout
+
+Users should:
+
+* View cart
+* Modify cart
+* Confirm order
+
+inside chat.
+
+No need to leave conversation flow.
+
+---
+
+# Address Management Through Chat
+
+Examples:
+
+"Deliver to office."
+
+"Add new address."
+
+"Use home address."
+
+Assistant updates addresses conversationally.
+
+---
+
+# AI Companion Experience
+
+Assistant is not limited to shopping.
+
+Should answer:
+
+* Product questions
+* General shopping questions
+* Comparisons
+* Recommendations
+
+Should feel like a helpful advisor rather than a search engine.
+
+---
+
+# Multi-Modal Inputs
+
+Support:
+
+Text
+
+Voice
+
+Image Upload
+
+Barcode Scan
+
+Examples:
+
+Photo of product
+
+Photo of empty refrigerator
+
+Barcode image
+
+Voice shopping commands
+
+Convert all inputs into shopping actions.
+
+---
+
+# Photo / Barcode / Voice To Basket
+
+User uploads:
+
+Product image
+
+Barcode image
+
+Voice command
+
+Assistant identifies products and adds them to cart.
+
+---
+
+# Family Shopping Assistant
+
+Combine needs from:
+
+* Parents
+* Children
+* Elderly family members
+* Pets
+
+Generate unified shopping recommendations.
+
+---
+
+# Smart Gift Recommendations
+
+Generate gift ideas using:
+
+* Events
+* Preferences
+* Past interactions
+
+Examples:
+
+Birthday
+
+Anniversary
+
+Festival
+
+---
+
+# Dataset Sources
+
+Amazon Reviews 2023
+
+https://amazon-reviews-2023.github.io/
+
+https://www.kaggle.com/datasets/wajahat1064/amazon-reviews-data-2023
+
+Amazon UK Products Dataset
+
+https://www.kaggle.com/datasets/asaniczka/amazon-uk-products-dataset-2023
+
+---
+
+# Categories To Use
+
+1. Grocery_and_Gourmet_Food
+
+2. Health_and_Household
+
+3. Beauty_and_Personal_Care
+
+4. Home_and_Kitchen
+
+5. Pet_Supplies
+
+6. Baby_Products
+
+7. Sports_and_Outdoors
+
+Target:
+
+2000-3000 products total
+
+Approximately:
+
+300-500 products per category
+
+---
+
+# Product Fields To Extract
+
+product_id
+
+title
+
+brand
+
+category
+
+subcategory
+
+price
+
+average_rating
+
+rating_count
+
+description
+
+features
+
+image_url
+
+pros
+
+cons
+
+tags
+
+stock
+
+delivery_time
+
+discount
+
+availability
+
+popularity_score
+
+---
+
+# AWS Direction
+
+Use AWS as primary infrastructure.
+
+Potential Services:
+
+* S3
+* DynamoDB
+* Bedrock
+* Lambda
+* API Gateway
+* OpenSearch
+* Cognito
+* CloudFront
+* Amplify
+* EventBridge
+* CloudWatch
+
+Goal:
+
+Host data, AI agents, APIs, user profiles, recommendation services, and search infrastructure entirely on AWS where possible.
+
+---
+
+# Reference Repositories
+
+1.
+
+https://github.com/aws-solutions-library-samples/guidance-for-generative-ai-shopping-assistant-using-agents-for-amazon-bedrock
+
+2.
+
+https://github.com/unicamp-dl/retailGPT
+
+3.
+
+https://github.com/Shivam-Shukl/Amazon-E-commerce-Agent-RAG-Based-AI-Product-Recommender
+
+---
+
+# Success Criteria
+
+The assistant should feel like:
+
+A personal household shopping manager that understands users, predicts needs, plans purchases, explains decisions, and allows shopping entirely through natural conversation.
