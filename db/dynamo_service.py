@@ -57,6 +57,16 @@ class DynamoService:
     def _now() -> str:
         return datetime.now(timezone.utc).isoformat()
 
+    @staticmethod
+    def _float_to_decimal(obj: Any) -> Any:
+        if isinstance(obj, float):
+            return Decimal(str(obj))
+        elif isinstance(obj, dict):
+            return {k: DynamoService._float_to_decimal(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [DynamoService._float_to_decimal(v) for v in obj]
+        return obj
+
     # ==================================================================
     # USERS
     # ==================================================================
@@ -69,6 +79,7 @@ class DynamoService:
             "full_name": full_name,
             "created_at": self._now(),
             "preferences": DEFAULT_PREFERENCES,
+            "memory": {},
         }
         try:
             self.users_table.put_item(
@@ -122,6 +133,32 @@ class DynamoService:
             return user.get("preferences", DEFAULT_PREFERENCES)
         return DEFAULT_PREFERENCES
 
+    def update_user_memory(self, user_id: str, memory_dict: Dict) -> Dict:
+        """Update the user's long-term memory."""
+        try:
+            self.users_table.update_item(
+                Key={"user_id": user_id},
+                UpdateExpression="SET memory = :m, updated_at = :u",
+                ExpressionAttributeValues={
+                    ":m": self._float_to_decimal(memory_dict),
+                    ":u": self._now(),
+                },
+                ConditionExpression="attribute_exists(user_id)",
+            )
+            return {"message": "Memory updated", "memory": memory_dict}
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                logger.warning(f"User not found for memory update: {user_id}")
+                return {"message": "User not found"}
+            raise
+
+    def get_user_memory(self, user_id: str) -> Dict:
+        """Get the user's long-term memory."""
+        user = self.get_user(user_id)
+        if user:
+            return user.get("memory", {})
+        return {}
+
     # ==================================================================
     # CHAT SESSIONS (UUID-based, multiple per user)
     # ==================================================================
@@ -137,10 +174,20 @@ class DynamoService:
             "title": title,
             "created_at": now,
             "updated_at": now,
+            "consultation_state": {},
+            "last_retrieved_products": [],
+            "recommendation_workspace": {},
         }
         self.sessions_table.put_item(Item=item)
         logger.info(f"Created session {session_id} for user {user_id}")
-        return {"session_id": session_id, "title": title, "created_at": now}
+        return {
+            "session_id": session_id,
+            "title": title,
+            "created_at": now,
+            "consultation_state": {},
+            "last_retrieved_products": [],
+            "recommendation_workspace": {}
+        }
 
     def list_sessions(self, user_id: str) -> List[Dict]:
         """List all chat sessions for a user, sorted by most recent."""
@@ -180,10 +227,39 @@ class DynamoService:
                     "title": item.get("title", "Untitled"),
                     "created_at": item.get("created_at", ""),
                     "updated_at": item.get("updated_at", ""),
+                    "consultation_state": item.get("consultation_state", {}),
+                    "last_retrieved_products": item.get("last_retrieved_products", []),
+                    "recommendation_workspace": item.get("recommendation_workspace", {}),
                 }
             return None
         except ClientError:
             return None
+
+    def update_consultation_state(self, user_id: str, session_id: str, state_dict: Dict, products: Optional[List] = None, workspace: Optional[Dict] = None):
+        """Update a session's consultation state, optionally last retrieved products, and recommendation workspace."""
+        try:
+            update_expr = "SET consultation_state = :s, updated_at = :u"
+            expr_values = {
+                ":s": self._float_to_decimal(state_dict),
+                ":u": self._now(),
+            }
+            if products is not None:
+                update_expr += ", last_retrieved_products = :p"
+                expr_values[":p"] = self._float_to_decimal(products)
+            if workspace is not None:
+                update_expr += ", recommendation_workspace = :w"
+                expr_values[":w"] = self._float_to_decimal(workspace)
+
+            self.sessions_table.update_item(
+                Key={
+                    "PK": f"USER#{user_id}",
+                    "SK": f"SESSION#{session_id}",
+                },
+                UpdateExpression=update_expr,
+                ExpressionAttributeValues=expr_values,
+            )
+        except ClientError as e:
+            logger.exception(f"Error updating consultation state")
 
     def update_session_title(self, user_id: str, session_id: str, title: str):
         """Update a session's title."""
@@ -261,15 +337,15 @@ class DynamoService:
         }
         if products:
             # Store minimal product info for history
-            item["products"] = [
+            item["products"] = self._float_to_decimal([
                 {
                     "parent_asin": p.get("parent_asin", ""),
                     "title": p.get("title", ""),
-                    "price": str(p.get("price", 0)),  # Store as string to avoid Decimal issues
+                    "price": p.get("price", 0),
                     "image_url": p.get("image_url", ""),
                 }
                 for p in products[:6]
-            ]
+            ])
 
         self.messages_table.put_item(Item=item)
         return item

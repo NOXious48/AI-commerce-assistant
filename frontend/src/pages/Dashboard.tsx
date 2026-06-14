@@ -6,6 +6,7 @@ import ChatPanel from '../components/ChatPanel';
 export default function Dashboard() {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [products, setProducts] = useState<any[]>([]);
+  const [consultationState, setConsultationState] = useState<any>({});
   const [isTyping, setIsTyping] = useState(false);
 
   return (
@@ -19,7 +20,8 @@ export default function Dashboard() {
       {/* Center Panel: Product Results (40%) */}
       <ProductPanel 
         products={products} 
-        isLoading={isTyping} 
+        isLoading={isTyping}
+        consultationState={consultationState}
       />
 
       {/* Right Panel: Chat (40%) */}
@@ -27,6 +29,7 @@ export default function Dashboard() {
         sessionId={currentSessionId}
         onSessionCreated={setCurrentSessionId}
         onProductsReceived={setProducts}
+        onStateReceived={setConsultationState}
         isTyping={isTyping}
         setIsTyping={setIsTyping}
       />

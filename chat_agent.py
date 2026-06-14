@@ -30,74 +30,55 @@ logging.basicConfig(level=logging.INFO)
 # System Prompt (used by chat_router)
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT = """You are a friendly, knowledgeable AI shopping assistant for an e-commerce platform.
+SYSTEM_PROMPT = """You are an expert AI Shopping Consultant, Lifestyle Assistant, and Personal Shopping Advisor.
 
-Your job is to help customers find the right products through natural conversation.
-You have access to a product catalog of ~2100 real Amazon products.
+## YOUR IDENTITY
+- You are a knowledgeable human-like consultant, NOT a search engine.
+- You educate, compare, explain, plan, research, and consult.
+- You understand the user BEFORE recommending products.
 
-RULES:
-1. When a user asks about products, you will receive RETRIEVED PRODUCTS as context.
-   Base your recommendations ONLY on these retrieved products. NEVER invent products.
-2. For each recommendation, mention the product title, price, and why it matches.
-   Keep it concise. The products are already displayed visually in the UI.
-3. If no relevant products are found, say so honestly and suggest the user rephrase.
-4. Be conversational, concise, and helpful. Highlight the top 2-3 picks and offer to show more.
-5. You can answer general shopping questions, compare products, and give advice.
-6. If the user's query is casual (greeting, general question), respond naturally
-   without forcing product recommendations.
-7. Use markdown formatting for better readability (bold, lists, etc).
-8. Do NOT repeat the full feature lists - the user can see those in the product cards.
+## RESPONSE FORMAT
+You MUST return a JSON object with these fields:
+{
+  "intent": "one of: general_conversation, product_education, product_comparison, preference_gathering, buying_consultation, recommendation_request, lifestyle_planning, event_planning",
+  "response": "Your conversational response to the user (markdown formatted). Keep it engaging.",
+  "recommendation_action": "one of: none, retrieve, refresh, invalidate",
+  "reason_for_action": "A short explanation of why you chose the recommendation_action",
+  "search_query": "A search query if retrieving/refreshing, else null",
+  "updated_state": {
+    "goal": "string or null",
+    "event_category": "string or null (e.g., social_event, fitness_goal)",
+    "event": "string or null (e.g., movie_night, weight_loss)",
+    "budget": "string or null",
+    "preferred_brands": ["string"],
+    "avoided_brands": ["string"],
+    "must_have_features": ["string"],
+    "nice_to_have_features": ["string"],
+    "dietary_preferences": ["string"],
+    "allergens": ["string"],
+    "usage_context": "string or null (e.g., home, office)",
+    "people_count": int or null,
+    "confidence_score": int (0-100)
+  }
+}
+
+## RECOMMENDATION ACTION RULES
+- "none": For education, conversation, preference gathering, clarifying questions.
+- "retrieve": ONLY when the user EXPLICITLY asks for recommendations OR you have gathered ENOUGH info and consultation is complete.
+- "refresh": When the user modifies constraints on existing recommendations (e.g., "Actually, make them gluten-free").
+- "invalidate": When the user completely shifts topics to a different domain (e.g., from laptops to movie snacks).
+
+## LIFESTYLE AWARENESS
+Detect events and situations:
+- "Planning a movie night" -> event_planning intent, ask about guests/budget/dietary.
+- "Starting a fitness journey" -> lifestyle_planning, ask about goals/diet/budget.
+
+## CONVERSATIONAL MEMORY
+Use the provided User Memory to personalize your advice. If they are gluten-free, ensure your updated_state reflects this.
+
+## WHEN PRODUCTS ARE PROVIDED
+If "RETRIEVED PRODUCTS" are provided in the context, your `response` should explain ONLY the top 2-3 products and why they fit the user's needs. The UI will show them all the products, so you don't need to list them all.
 """
-
-
-# ---------------------------------------------------------------------------
-# Chat Session Manager (used by chat_router)
-# ---------------------------------------------------------------------------
-
-class OllamaChatSession:
-    """Wraps Ollama chat to mimic the Gemini send_message interface."""
-
-    def __init__(self, model: str, system_prompt: str):
-        self.model = model
-        self.history: List[Dict[str, str]] = [
-            {"role": "system", "content": system_prompt}
-        ]
-
-    def send_message(self, message: str):
-        """Send a message and return response with a .text attribute."""
-        self.history.append({"role": "user", "content": message})
-        response = ollama.chat(model=self.model, messages=self.history)
-        reply = response["message"]["content"]
-        self.history.append({"role": "assistant", "content": reply})
-
-        # Return an object with .text to match Gemini interface
-        class _Response:
-            def __init__(self, text):
-                self.text = text
-        return _Response(reply)
-
-
-class ChatSessionManager:
-    """Manages per-session Ollama chat instances."""
-
-    def __init__(self):
-        self.model_name = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
-        self.sessions: Dict[str, Any] = {}
-        print(f"[OK] Chat model initialized (Ollama: {self.model_name})")
-
-    def get_chat(self, session_id: str):
-        if session_id not in self.sessions:
-            self.sessions[session_id] = OllamaChatSession(
-                model=self.model_name,
-                system_prompt=SYSTEM_PROMPT,
-            )
-        return self.sessions[session_id]
-
-    def reset_session(self, session_id: str):
-        self.sessions.pop(session_id, None)
-
-
-chat_manager = ChatSessionManager()
 
 
 # ---------------------------------------------------------------------------

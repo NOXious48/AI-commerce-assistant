@@ -89,7 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return fetchWithToken(url, options);
   };
 
-  const fetchWithToken = async (url: string, options: RequestInit) => {
+  const fetchWithToken = async (url: string, options: RequestInit = {}) => {
     // If we need to refresh, do it directly
     if (!accessToken || (expiresAt && Date.now() > expiresAt - 60000)) {
       try {

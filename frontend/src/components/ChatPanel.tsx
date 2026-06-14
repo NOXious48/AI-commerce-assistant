@@ -7,25 +7,31 @@ interface ChatPanelProps {
   sessionId: string | null;
   onSessionCreated: (id: string) => void;
   onProductsReceived: (products: any[]) => void;
+  onStateReceived: (state: any) => void;
   isTyping: boolean;
   setIsTyping: (t: boolean) => void;
 }
 
 // Simple Markdown Parser
 function parseMarkdown(text: string) {
-  return text
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.+?)\*/g, '<em>$1</em>')
-      .replace(/`([^`]+)`/g, '<code class="bg-black/20 px-1 rounded">$1</code>')
-      .replace(/^\s*[-*]\s+(.+)$/gm, '<li class="ml-4 list-disc">$1</li>')
-      .replace(/^\s*\d+\.\s+(.+)$/gm, '<li class="ml-4 list-decimal">$1</li>')
-      .replace(/(<li.*<\/li>)/s, '<ul class="my-2">$1</ul>')
-      .replace(/\n\n/g, '</p><p class="mt-2">')
-      .replace(/\n/g, '<br>')
-      .replace(/^/, '<p>').replace(/$/, '</p>');
+  if (!text) return '';
+  try {
+    return text
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.+?)\*/g, '<em>$1</em>')
+        .replace(/`([^`]+)`/g, '<code class="bg-black/20 px-1 rounded">$1</code>')
+        .replace(/^\s*[-*]\s+(.+)$/gm, '<li class="ml-4 list-disc">$1</li>')
+        .replace(/^\s*\d+\.\s+(.+)$/gm, '<li class="ml-4 list-decimal">$1</li>')
+        .replace(/((?:<li[^>]*>.*<\/li>\s*)+)/gs, '<ul class="my-2">$1</ul>')
+        .replace(/\n\n/g, '</p><p class="mt-2">')
+        .replace(/\n/g, '<br>')
+        .replace(/^/, '<p>').replace(/$/, '</p>');
+  } catch {
+    return `<p>${text}</p>`;
+  }
 }
 
-export default function ChatPanel({ sessionId, onSessionCreated, onProductsReceived, isTyping, setIsTyping }: ChatPanelProps) {
+export default function ChatPanel({ sessionId, onSessionCreated, onProductsReceived, onStateReceived, isTyping, setIsTyping }: ChatPanelProps) {
   const { authFetch } = useAuth();
   const [messages, setMessages] = useState<any[]>([]);
   const [input, setInput] = useState('');
@@ -37,17 +43,25 @@ export default function ChatPanel({ sessionId, onSessionCreated, onProductsRecei
       authFetch(`/api/chat/session/${sessionId}`)
         .then(res => res.json())
         .then(data => {
-          setMessages(data.messages || []);
-          const lastProds = data.messages?.filter((m:any) => m.products?.length).pop()?.products || [];
-          onProductsReceived(lastProds);
+          if (data.messages && data.messages.length > 0) {
+            setMessages(data.messages);
+          } else {
+            setMessages([{
+              role: 'assistant',
+              content: "Hey! 👋 I'm your AI shopping consultant. What are you looking for?"
+            }]);
+          }
+          onProductsReceived(data.products || []);
+          onStateReceived(data.state || {});
         })
         .catch(err => console.error(err));
     } else {
       setMessages([{
         role: 'assistant',
-        content: "Hey! 👋 I'm your AI shopping assistant. What are you looking for?"
+        content: "Hey! 👋 I'm your AI shopping consultant. What are you looking for?"
       }]);
       onProductsReceived([]);
+      onStateReceived({});
     }
   }, [sessionId]);
 
@@ -77,7 +91,14 @@ export default function ChatPanel({ sessionId, onSessionCreated, onProductsRecei
     },
     onSuccess: (data) => {
       setMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
-      onProductsReceived(data.products || []);
+      
+      if (data.recommendation_action !== "none") {
+        onProductsReceived(data.products || []);
+      }
+      
+      if (data.state) {
+        onStateReceived(data.state);
+      }
       setIsTyping(false);
     },
     onError: () => {
@@ -127,8 +148,8 @@ export default function ChatPanel({ sessionId, onSessionCreated, onProductsRecei
                 : 'bg-chat-user rounded-2xl rounded-tr-sm text-white'
             }`}>
               {m.role === 'assistant' 
-                ? <div dangerouslySetInnerHTML={{ __html: parseMarkdown(m.content) }} />
-                : <p>{m.content}</p>
+                ? <div dangerouslySetInnerHTML={{ __html: parseMarkdown(m.content || '') }} />
+                : <p>{m.content || ''}</p>
               }
             </div>
           </div>
@@ -150,7 +171,7 @@ export default function ChatPanel({ sessionId, onSessionCreated, onProductsRecei
       </div>
 
       <div className="p-4 bg-bg-secondary border-t border-border-light">
-        {!messages.length || (messages.length === 1 && !sessionId) ? (
+        {messages.length <= 1 ? (
           <div className="flex flex-wrap gap-2 mb-3">
             {['Coffee pods for Keurig', 'Healthy snacks', 'Cat food'].map(s => (
               <button 

@@ -1,5 +1,22 @@
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
+from enum import Enum
+
+class IntentType(str, Enum):
+    GENERAL_CONVERSATION = "general_conversation"
+    PRODUCT_EDUCATION = "product_education"
+    PRODUCT_COMPARISON = "product_comparison"
+    PREFERENCE_GATHERING = "preference_gathering"
+    BUYING_CONSULTATION = "buying_consultation"
+    RECOMMENDATION_REQUEST = "recommendation_request"
+    LIFESTYLE_PLANNING = "lifestyle_planning"
+    EVENT_PLANNING = "event_planning"
+
+class RecommendationAction(str, Enum):
+    NONE = "none"           # No retrieval needed
+    RETRIEVE = "retrieve"   # Fresh retrieval
+    REFRESH = "refresh"     # Re-retrieve due to context change
+    INVALIDATE = "invalidate"  # Clear products, context shifted domains
 
 class ChatRequest(BaseModel):
     message: str
@@ -60,3 +77,34 @@ class OrderDetailsSchema(BaseModel):
     address: str
     items: List[OrderItemSchema]
     total: float
+
+class ConsultationState(BaseModel):
+    goal: Optional[str] = None
+    event_category: Optional[str] = None
+    event: Optional[str] = None
+    budget: Optional[str] = None
+    preferred_brands: List[str] = []
+    avoided_brands: List[str] = []
+    must_have_features: List[str] = []
+    nice_to_have_features: List[str] = []
+    dietary_preferences: List[str] = []
+    allergens: List[str] = []
+    usage_context: Optional[str] = None
+    people_count: Optional[int] = None
+    confidence_score: int = 0
+
+class RecommendationWorkspace(BaseModel):
+    """Versioned recommendation context stored in ChatSession."""
+    context_hash: str = ""
+    active_domain: Optional[str] = None    # "gaming_laptop", "movie_night_snacks"
+    retrieved_products: List[dict] = []
+    version: int = 0
+    generated_at: Optional[str] = None
+    reason_for_generation: Optional[str] = None
+
+class UserMemory(BaseModel):
+    dietary_preferences: List[str] = []
+    budget_preferences: List[str] = []
+    favorite_brands: List[str] = []
+    avoided_brands: List[str] = []
+    other_preferences: List[str] = []
