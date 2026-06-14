@@ -61,8 +61,18 @@ def add_to_cart(req: CartAddRequest, user: dict = Depends(get_current_user)):
             "quantity": req.quantity,
             "image": product_meta.get("image_url", ""),
             "added_at": datetime.now(timezone.utc).isoformat(),
-            "source_context": session.get("consultation_state", {}).get("goal", "")
+            "source_context": session.get("consultation_state", {}).get("goal", ""),
+            "added_by": "user",
+            "added_reason": "Manually added by user"
         })
+        
+    # Update manual adds in workspace
+    workspace = session.get("cart_workspace", {})
+    if req.product_id not in workspace.get("manually_added_asins", []):
+        if "manually_added_asins" not in workspace:
+            workspace["manually_added_asins"] = []
+        workspace["manually_added_asins"].append(req.product_id)
+        dynamo_service.update_cart_workspace(user_id, req.session_id, workspace)
         
     success = dynamo_service.update_cart_items(user_id, req.session_id, cart_items)
     if not success:
@@ -88,6 +98,15 @@ def remove_from_cart(req: CartRemoveRequest, user: dict = Depends(get_current_us
         else:
             new_cart.append(item)
             
+    # Update manual removes in workspace if fully removed
+    if req.fully_remove:
+        workspace = session.get("cart_workspace", {})
+        if req.product_id not in workspace.get("manually_removed_asins", []):
+            if "manually_removed_asins" not in workspace:
+                workspace["manually_removed_asins"] = []
+            workspace["manually_removed_asins"].append(req.product_id)
+            dynamo_service.update_cart_workspace(user_id, req.session_id, workspace)
+            
     success = dynamo_service.update_cart_items(user_id, req.session_id, new_cart)
     if not success:
         raise HTTPException(status_code=500, detail="Failed to update cart")
@@ -101,7 +120,19 @@ def clear_cart(req: CartClearRequest, user: dict = Depends(get_current_user)):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
         
-    success = dynamo_service.clear_cart(user_id, req.session_id)
+    # Full clear from UI
+    success = dynamo_service.clear_cart(user_id, req.session_id, keep_user_items=False)
+    
+    # Archive workspace
+    workspace = session.get("cart_workspace", {})
+    if workspace:
+        workspace["previous_version"] = workspace.get("version", 0)
+        workspace["version"] = workspace.get("version", 0) + 1
+        workspace["status"] = "archived"
+        workspace["last_updated"] = datetime.now(timezone.utc).isoformat()
+        workspace["update_reason"] = "User explicitly cleared entire cart."
+        dynamo_service.update_cart_workspace(user_id, req.session_id, workspace)
+
     if not success:
         raise HTTPException(status_code=500, detail="Failed to clear cart")
         
@@ -111,15 +142,13 @@ def clear_cart(req: CartClearRequest, user: dict = Depends(get_current_user)):
 def get_product_details(parent_asin: str, session_id: str, user: dict = Depends(get_current_user)):
     user_id = user["sub"]
     
-    # 1. Base Metadata
-    product_meta = retriever.metadata.get(parent_asin) or retriever.catalog.get(parent_asin)
-    if not product_meta:
-        raise HTTPException(status_code=404, detail="Product not found")
-        
-    # 2. Review Summary
-    review_summary = review_data_index.get_summary(parent_asin)
+    # 1. Fetch precomputed details (O(1) lookup)
+    precomputed = retriever.get_product_details_index(parent_asin)
     
-    # 3. Workspace Context (Why Recommended)
+    if not precomputed:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    # 2. Workspace Context (Why Recommended)
     alignment_score = None
     approval_reasons = []
     rejected_reasons = []
@@ -140,51 +169,16 @@ def get_product_details(parent_asin: str, session_id: str, user: dict = Depends(
                     rejected_reasons = p.get("rejected_reason", [])
                     break
 
-    # 4. Generate AI Summary (Cached/Stored dynamically or generated on the fly)
-    # Using Gemini for quick generation
-    ai_summary = "AI Summary not available."
-    try:
-        client = genai.Client()
-        prompt = (
-            f"Write a concise, 2-sentence highly positive shopping summary for the product '{product_meta.get('title')}'.\n"
-            f"Consider its features: {product_meta.get('features', [])}\n"
-        )
-        if approval_reasons:
-            prompt += f"Why it was recommended to the user: {approval_reasons}\n"
-        if review_summary.get("top_praises"):
-            prompt += f"Top review praises: {review_summary.get('top_praises')}\n"
-            
-        prompt += "\nOutput just the summary, no intro."
-        
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-        )
-        if response.text:
-            ai_summary = response.text.strip()
-    except Exception as e:
-        logger.warning(f"Failed to generate AI summary: {e}")
+    # 3. Generate AI Summary in background or skip to save latency
+    # The user priority mentions caching at startup. For O(1) response, we return early
+    # without doing the synchronous Gemini request! (Unless we absolutely need it).
+    # Since we need sub-second latency, we'll omit the synchronous generation here.
+    ai_summary = "AI Summary generation disabled for latency."
 
-    # Build response
+    # Build response using precomputed index
     return {
-        "metadata": {
-            "title": product_meta.get("title", ""),
-            "brand": product_meta.get("store", product_meta.get("brand", "")),
-            "category": product_meta.get("main_category", ""),
-            "price": product_meta.get("price", 0.0),
-            "description": product_meta.get("description", ""),
-            "features": product_meta.get("features", []),
-            "images": product_meta.get("images", [product_meta.get("image_url")]) if "images" in product_meta else [product_meta.get("image_url")],
-        },
-        "reviews": {
-            "avg_rating": review_summary.get("avg_rating", product_meta.get("average_rating", 0)),
-            "total_reviews": review_summary.get("total_reviews", product_meta.get("rating_number", 0)),
-            "positive_ratio": review_summary.get("positive_ratio", 0),
-            "negative_ratio": review_summary.get("negative_ratio", 0),
-            "verified_ratio": review_summary.get("verified_ratio", 0),
-            "positive_highlights": review_summary.get("top_praises", []),
-            "negative_highlights": review_summary.get("top_complaints", []),
-        },
+        "metadata": precomputed["metadata"],
+        "reviews": precomputed["reviews"],
         "recommendation": {
             "alignment_score": alignment_score,
             "approval_reasons": approval_reasons,

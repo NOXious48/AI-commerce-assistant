@@ -10,6 +10,7 @@ interface ChatPanelProps {
   onStateReceived: (state: any) => void;
   onMetricsReceived: (metrics: any) => void;
   onCartReceived: (cartItems: any[]) => void;
+  onCartWorkspaceReceived: (cartWorkspace: any) => void;
   isTyping: boolean;
   setIsTyping: (t: boolean) => void;
 }
@@ -33,7 +34,7 @@ function parseMarkdown(text: string) {
   }
 }
 
-export default function ChatPanel({ sessionId, onSessionCreated, onProductsReceived, onStateReceived, onMetricsReceived, onCartReceived, isTyping, setIsTyping }: ChatPanelProps) {
+export default function ChatPanel({ sessionId, onSessionCreated, onProductsReceived, onStateReceived, onMetricsReceived, onCartReceived, onCartWorkspaceReceived, isTyping, setIsTyping }: ChatPanelProps) {
   const { authFetch } = useAuth();
   const [messages, setMessages] = useState<any[]>([]);
   const [input, setInput] = useState('');
@@ -57,6 +58,7 @@ export default function ChatPanel({ sessionId, onSessionCreated, onProductsRecei
           onStateReceived(data.state || {});
           onMetricsReceived(data.filtering_metadata || {});
           onCartReceived(data.cart_items || []);
+          onCartWorkspaceReceived(data.cart_workspace || {});
         })
         .catch(err => console.error(err));
     } else {
@@ -68,6 +70,7 @@ export default function ChatPanel({ sessionId, onSessionCreated, onProductsRecei
       onStateReceived({});
       onMetricsReceived({});
       onCartReceived([]);
+      onCartWorkspaceReceived({});
     }
   }, [sessionId]);
 
@@ -108,6 +111,12 @@ export default function ChatPanel({ sessionId, onSessionCreated, onProductsRecei
       if (data.filtering_metadata) {
         onMetricsReceived(data.filtering_metadata);
       }
+      if (data.cart_items) {
+        onCartReceived(data.cart_items);
+      }
+      if (data.cart_workspace) {
+        onCartWorkspaceReceived(data.cart_workspace);
+      }
       setIsTyping(false);
     },
     onError: () => {
@@ -145,24 +154,38 @@ export default function ChatPanel({ sessionId, onSessionCreated, onProductsRecei
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-custom">
-        {messages.map((m, i) => (
-          <div key={i} className={`flex gap-3 animate-fadeIn ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
-            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-white
-              ${m.role === 'assistant' ? 'bg-gradient-to-br from-accent to-orange-500' : 'bg-gray-700'}`}>
-              {m.role === 'assistant' ? <Bot size={16} /> : <User size={16} />}
+        {messages.map((m, i) => {
+          if (m.role === 'system' && m.type === 'cart_update') {
+            return (
+              <div key={i} className="flex justify-center my-2 animate-fadeIn">
+                <div className="bg-bg-secondary border border-border-light text-xs text-text-muted px-4 py-2 rounded-full flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-accent animate-pulse"></div>
+                  {m.content}
+                </div>
+              </div>
+            );
+          }
+          if (m.role === 'system') return null; // Hide other system messages
+
+          return (
+            <div key={i} className={`flex gap-3 animate-fadeIn ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-white
+                ${m.role === 'assistant' ? 'bg-gradient-to-br from-accent to-orange-500' : 'bg-gray-700'}`}>
+                {m.role === 'assistant' ? <Bot size={16} /> : <User size={16} />}
+              </div>
+              <div className={`max-w-[85%] p-3 text-sm leading-relaxed ${
+                m.role === 'assistant' 
+                  ? 'bg-chat-ai rounded-2xl rounded-tl-sm text-text-primary' 
+                  : 'bg-chat-user rounded-2xl rounded-tr-sm text-white'
+              }`}>
+                {m.role === 'assistant' 
+                  ? <div dangerouslySetInnerHTML={{ __html: parseMarkdown(m.content || '') }} />
+                  : <p>{m.content || ''}</p>
+                }
+              </div>
             </div>
-            <div className={`max-w-[85%] p-3 text-sm leading-relaxed ${
-              m.role === 'assistant' 
-                ? 'bg-chat-ai rounded-2xl rounded-tl-sm text-text-primary' 
-                : 'bg-chat-user rounded-2xl rounded-tr-sm text-white'
-            }`}>
-              {m.role === 'assistant' 
-                ? <div dangerouslySetInnerHTML={{ __html: parseMarkdown(m.content || '') }} />
-                : <p>{m.content || ''}</p>
-              }
-            </div>
-          </div>
-        ))}
+          );
+        })}
 
         {isTyping && (
           <div className="flex gap-3 animate-fadeIn">

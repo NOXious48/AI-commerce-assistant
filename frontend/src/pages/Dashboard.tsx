@@ -11,6 +11,7 @@ export default function Dashboard() {
   const [consultationState, setConsultationState] = useState<any>({});
   const [filteringMetadata, setFilteringMetadata] = useState<any>({});
   const [cartItems, setCartItems] = useState<any[]>([]);
+  const [cartWorkspace, setCartWorkspace] = useState<any>({});
   const [selectedProduct, setSelectedProduct] = useState<any | null>(null);
   const [isTyping, setIsTyping] = useState(false);
 
@@ -39,6 +40,7 @@ export default function Dashboard() {
         onStateReceived={setConsultationState}
         onMetricsReceived={setFilteringMetadata}
         onCartReceived={setCartItems}
+        onCartWorkspaceReceived={setCartWorkspace}
         isTyping={isTyping}
         setIsTyping={setIsTyping}
       />
@@ -47,7 +49,8 @@ export default function Dashboard() {
       <CartPanel 
         sessionId={currentSessionId} 
         cartItems={cartItems} 
-        setCartItems={setCartItems} 
+        setCartItems={setCartItems}
+        cartWorkspace={cartWorkspace}
       />
       
       {selectedProduct && (

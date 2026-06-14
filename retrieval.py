@@ -37,6 +37,7 @@ class ProductRetriever:
         self.id_mapping: List[Dict[str, Any]] = []         # index -> {parent_asin, title, price, main_category}
         self.catalog: Dict[str, Dict[str, Any]] = {}       # parent_asin -> full product dict
         self.metadata: Dict[str, Dict[str, Any]] = {}      # parent_asin -> metadata dict
+        self.product_details_index: Dict[str, Dict[str, Any]] = {} # parent_asin -> merged details
         self.model = None                                   # SentenceTransformer model (lazy loaded)
         self._loaded = False
 
@@ -90,8 +91,42 @@ class ProductRetriever:
                         if asin:
                             self.metadata[asin] = item
                 elif isinstance(meta_raw, dict):
-                    self.metadata = meta_raw
+                    if "products" in meta_raw:
+                        for item in meta_raw["products"]:
+                            asin = item.get("parent_asin")
+                            if asin:
+                                self.metadata[asin] = item
+                    else:
+                        self.metadata = meta_raw
                 logger.info(f"Loaded product metadata: {len(self.metadata)} entries")
+                
+            # 5. Build Startup Product Details Index
+            from review_filter_agent import review_data_index
+            for asin, meta_entry in self.metadata.items():
+                review_summary = review_data_index.get_summary(asin)
+                meta_inner = meta_entry.get("metadata", meta_entry)
+                
+                self.product_details_index[asin] = {
+                    "metadata": {
+                        "title": meta_inner.get("title", ""),
+                        "brand": meta_inner.get("store", meta_inner.get("brand", "")),
+                        "category": meta_inner.get("main_category", ""),
+                        "price": meta_inner.get("price", 0.0),
+                        "description": meta_inner.get("description", ""),
+                        "features": meta_inner.get("features", []),
+                        "images": meta_inner.get("images", [meta_inner.get("image_url")]) if "images" in meta_inner else [meta_inner.get("image_url")],
+                    },
+                    "reviews": {
+                        "avg_rating": review_summary.get("avg_rating", meta_inner.get("average_rating", 0)),
+                        "total_reviews": review_summary.get("total_reviews", meta_inner.get("rating_number", 0)),
+                        "positive_ratio": review_summary.get("positive_ratio", 0),
+                        "negative_ratio": review_summary.get("negative_ratio", 0),
+                        "verified_ratio": review_summary.get("verified_ratio", 0),
+                        "positive_highlights": review_summary.get("top_praises", []),
+                        "negative_highlights": review_summary.get("top_complaints", []),
+                    }
+                }
+            logger.info(f"Built product_details_index: {len(self.product_details_index)} entries")
 
             # Pre-normalize embeddings for fast cosine similarity
             norms = np.linalg.norm(self.embeddings, axis=1, keepdims=True)
@@ -213,6 +248,10 @@ class ProductRetriever:
     def get_product_metadata(self, parent_asin: str) -> Optional[Dict[str, Any]]:
         """Get detailed metadata by ASIN."""
         return self.metadata.get(parent_asin)
+        
+    def get_product_details_index(self, parent_asin: str) -> Optional[Dict[str, Any]]:
+        """Get O(1) merged product details (metadata + reviews)."""
+        return self.product_details_index.get(parent_asin)
 
     def get_categories(self) -> List[str]:
         """Get list of all unique main categories in the dataset."""

@@ -23,6 +23,13 @@ from decimal import Decimal
 from google.adk.agents import LlmAgent
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
+import time
+
+# --- Short-Term Decision Cache ---
+# Stores { "session_id:message_hash": {"decision": dict, "expires_at": float} }
+DECISION_CACHE = {}
+DECISION_CACHE_TTL = 60  # seconds
+
 
 # Google GenAI — used only for memory extraction (utility, not agent)
 from google import genai
@@ -60,6 +67,10 @@ def _get_retriever():
 def _get_filter_agent():
     from review_filter_agent import review_filter_agent
     return review_filter_agent
+
+def _get_cart_planning_agent():
+    from cart_planning_agent import cart_planning_agent
+    return cart_planning_agent
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +187,7 @@ async def _conversation_agent(message: str, state: dict, memory: dict, history: 
     context_lines = [
         f"USER MEMORY (Persistent Preferences):\n{json.dumps(_convert_decimals(memory), indent=2)}\n",
         f"CURRENT CONSULTATION STATE:\n{json.dumps(_convert_decimals(state), indent=2)}\n",
-        f"RECOMMENDATION WORKSPACE SUMMARY:\n{json.dumps(workspace_summary, indent=2)}\n",
+        f"RECOMMENDATION WORKSPACE SUMMARY:\n{json.dumps(_convert_decimals(workspace_summary), indent=2)}\n",
     ]
     
     # Include top products for LLM explanation (top 2-3 only)
@@ -238,17 +249,23 @@ async def _conversation_agent(message: str, state: dict, memory: dict, history: 
             raise ValueError("ADK returned empty response")
         
         # --- Validate output against ConversationAgentOutput ---
-        # Strip markdown json block if present
-        cleaned_text = final_text.strip()
-        if cleaned_text.startswith("```json"):
-            cleaned_text = cleaned_text[7:]
-        elif cleaned_text.startswith("```"):
-            cleaned_text = cleaned_text[3:]
-        if cleaned_text.endswith("```"):
-            cleaned_text = cleaned_text[:-3]
-        cleaned_text = cleaned_text.strip()
-
-        raw_output = json.loads(cleaned_text)
+        # Extract JSON block using regex if present
+        import re
+        json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', final_text, re.DOTALL)
+        if json_match:
+            cleaned_text = json_match.group(1).strip()
+        else:
+            cleaned_text = final_text.strip()
+        # Fix invalid JSON escapes (e.g. LLM outputs \Once instead of \\Once)
+        cleaned_text = re.sub(r'\\(?=[^"\\/bfnrtu])', r'\\\\', cleaned_text)
+        
+        try:
+            raw_output = json.loads(cleaned_text)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to decode JSON. final_text was: {repr(final_text)}")
+            logger.error(f"cleaned_text was: {repr(cleaned_text)}")
+            raise e
+            
         validated = ConversationAgentOutput.model_validate(raw_output)
         logger.info(f"ADK Agent: intent={validated.intent}, action={validated.recommendation_action}, reason={validated.reason_for_action}")
         return validated.model_dump()
@@ -325,27 +342,49 @@ async def chat(req: ChatMessage, background_tasks: BackgroundTasks, user: dict =
     session_id = req.session_id
     message = req.message
 
-    # 1. Verify session belongs to this user
-    session = dynamo_service.get_session(user_id, session_id)
+    # 1. Parallel Load Session, Memory, Messages
+    session, user_mem, all_messages = await asyncio.gather(
+        asyncio.to_thread(dynamo_service.get_session, user_id, session_id),
+        asyncio.to_thread(dynamo_service.get_user_memory, user_id),
+        asyncio.to_thread(dynamo_service.get_messages, session_id, 12)
+    )
+
     if not session:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat session not found.")
 
-    # 2. Save user message
+    # 2. Save user message synchronously (as requested)
     dynamo_service.save_message(session_id, "user", message)
-
-    # 3. Load State, Memory, and Workspace
-    state = session.get("consultation_state", {})
-    user_mem = dynamo_service.get_user_memory(user_id)
-    workspace = session.get("recommendation_workspace", {})
-    all_messages = dynamo_service.get_messages(session_id, limit=12)
-
-    # 4. CONVERSATION AGENT (ADK) — single LlmAgent call
-    decision = await _conversation_agent(message, state, user_mem, all_messages, workspace, user_id, session_id)
     
+    # 3. Request Context Preparation
+    # Append the user's message manually to the list since we loaded it concurrently before saving
+    all_messages.append({"role": "user", "content": message, "timestamp": datetime.now(timezone.utc).isoformat()})
+    
+    state = session.get("consultation_state", {})
+    workspace = session.get("recommendation_workspace", {})
+    
+    # --- Check Short-Term Decision Cache ---
+    msg_hash = hashlib.md5(message.encode()).hexdigest()
+    cache_key = f"{session_id}:{msg_hash}"
+    now = time.time()
+    
+    # Cleanup expired cache entries (lazy cleanup)
+    expired_keys = [k for k, v in DECISION_CACHE.items() if v["expires_at"] < now]
+    for k in expired_keys:
+        del DECISION_CACHE[k]
+        
+    if cache_key in DECISION_CACHE:
+        decision = DECISION_CACHE[cache_key]["decision"]
+        logger.info(f"Using cached decision for {cache_key}")
+    else:
+        # 4. CONVERSATION AGENT (ADK) — single LlmAgent call
+        decision = await _conversation_agent(message, state, user_mem, all_messages, workspace, user_id, session_id)
+        DECISION_CACHE[cache_key] = {"decision": decision, "expires_at": now + DECISION_CACHE_TTL}
+
     reply = decision.get("response", "I'm not sure how to answer that.")
     intent = decision.get("intent", "general_conversation")
     new_state = decision.get("updated_state", state)
     action = decision.get("recommendation_action", "none")
+    cart_action = decision.get("cart_action", "none")
     reason = decision.get("reason_for_action", "")
     search_query = decision.get("search_query", "")
 
@@ -413,31 +452,72 @@ async def chat(req: ChatMessage, background_tasks: BackgroundTasks, user: dict =
         else:
             safe_products = rec_decision.get("products", [])
 
-    # 6. Save new state, workspace, and assistant reply to DB
+    # 6. CART PLANNING AGENT
+    cart_workspace = session.get("cart_workspace", {})
+    current_cart = session.get("cart_items", [])
+    
+    if cart_action != "none":
+        cart_agent = _get_cart_planning_agent()
+        cart_result = cart_agent.plan_cart(
+            action=cart_action,
+            current_cart=current_cart,
+            cart_workspace=cart_workspace,
+            consultation_state=new_state,
+            approved_products=safe_products,
+            user_memory=user_mem,
+            intent=intent
+        )
+        
+        new_cart = cart_result.get("new_cart", current_cart)
+        new_cart_workspace = cart_result.get("new_workspace", cart_workspace)
+        sys_msg = cart_result.get("system_message", None)
+        
+        # Save updates
+        background_tasks.add_task(dynamo_service.update_cart_items, user_id, session_id, new_cart)
+        background_tasks.add_task(dynamo_service.update_cart_workspace, user_id, session_id, new_cart_workspace)
+        
+        if sys_msg:
+            dynamo_service.save_message(
+                session_id=session_id,
+                role=sys_msg["role"],
+                content=sys_msg["message"],
+                msg_type=sys_msg["type"],
+                event_metadata={
+                    "event_type": sys_msg["event_type"],
+                    "cart_version": sys_msg["cart_version"]
+                }
+            )
+
+    # 7. Save new state, workspace, and assistant reply to DB
     # We display Top 30 in UI, so only pass top 30 to save_message if you want to limit DB size for messages
-    dynamo_service.update_consultation_state(user_id, session_id, new_state, None, workspace)
+    background_tasks.add_task(dynamo_service.update_consultation_state, user_id, session_id, new_state, safe_products[:30], workspace)
+        
     dynamo_service.save_message(session_id, "assistant", reply, safe_products[:30])
 
     # Update session title if it's new
     if session.get("title") == "New Chat":
         title = message[:30] + ("..." if len(message) > 30 else "")
-        dynamo_service.update_session_title(user_id, session_id, title)
+        background_tasks.add_task(dynamo_service.update_session_title, user_id, session_id, title)
     else:
-        dynamo_service.update_session_timestamp(user_id, session_id)
+        background_tasks.add_task(dynamo_service.update_session_timestamp, user_id, session_id)
 
-    # 7. Memory Extraction (Background)
+    # 8. Memory Extraction (Background)
     if len(all_messages) % 5 == 0:
         background_tasks.add_task(_extract_memory_background, user_id, all_messages)
 
-    return {
+    response_data = {
         "reply": reply,
         "products": _convert_decimals(safe_products[:30]),  # Display top 30
         "state": _convert_decimals(new_state),
         "intent": intent,
         "recommendation_action": action,
         "reason_for_action": reason,
-        "filtering_metadata": workspace.get("filtering_metadata", {})
+        "filtering_metadata": workspace.get("filtering_metadata", {}),
+        "cart_items": _convert_decimals(current_cart) if cart_action == "none" else _convert_decimals(cart_result.get("new_cart", [])),
+        "cart_workspace": _convert_decimals(cart_workspace) if cart_action == "none" else _convert_decimals(cart_result.get("new_workspace", {}))
     }
+    logger.info(f"Returning {len(response_data['products'])} products, {len(response_data['cart_items'])} cart items. action={action}, cart_action={cart_action}")
+    return response_data
 
 
 @router.get("/history")
@@ -464,7 +544,9 @@ async def get_session_messages(
         "session": _convert_decimals(session), 
         "messages": _convert_decimals(messages),
         "state": _convert_decimals(session.get("consultation_state", {})),
-        "products": _convert_decimals(session.get("last_retrieved_products", []))
+        "products": _convert_decimals(session.get("last_retrieved_products", [])),
+        "cart_items": _convert_decimals(session.get("cart_items", [])),
+        "cart_workspace": _convert_decimals(session.get("cart_workspace", {}))
     }
 
 

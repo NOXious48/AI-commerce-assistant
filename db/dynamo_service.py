@@ -177,6 +177,7 @@ class DynamoService:
             "consultation_state": {},
             "last_retrieved_products": [],
             "recommendation_workspace": {},
+            "cart_workspace": {},
             "cart_items": []
         }
         self.sessions_table.put_item(Item=item)
@@ -191,6 +192,15 @@ class DynamoService:
                 "rejected_products": [],
                 "filtering_metadata": {},
                 "version": 0
+            },
+            "cart_workspace": {
+                "cart_context_hash": "",
+                "status": "active",
+                "version": 0,
+                "previous_version": 0,
+                "category_targets": {},
+                "manually_added_asins": [],
+                "manually_removed_asins": []
             },
             "cart_items": []
         }
@@ -236,6 +246,7 @@ class DynamoService:
                     "consultation_state": item.get("consultation_state", {}),
                     "last_retrieved_products": item.get("last_retrieved_products", []),
                     "recommendation_workspace": item.get("recommendation_workspace", {}),
+                    "cart_workspace": item.get("cart_workspace", {}),
                     "cart_items": item.get("cart_items", [])
                 }
             return None
@@ -333,9 +344,34 @@ class DynamoService:
             logger.exception(f"Error updating cart for session {session_id}")
             return False
 
-    def clear_cart(self, user_id: str, session_id: str) -> bool:
-        """Clear all items from the cart for a given session."""
-        return self.update_cart_items(user_id, session_id, [])
+    def update_cart_workspace(self, user_id: str, session_id: str, workspace_dict: Dict) -> bool:
+        """Update the cart_workspace for a given session."""
+        try:
+            self.sessions_table.update_item(
+                Key={"PK": f"USER#{user_id}", "SK": f"SESSION#{session_id}"},
+                UpdateExpression="SET cart_workspace = :w, updated_at = :u",
+                ExpressionAttributeValues={
+                    ":w": self._float_to_decimal(workspace_dict),
+                    ":u": self._now(),
+                },
+                ConditionExpression="attribute_exists(PK)"
+            )
+            return True
+        except ClientError as e:
+            logger.exception(f"Error updating cart workspace for session {session_id}")
+            return False
+
+    def clear_cart(self, user_id: str, session_id: str, keep_user_items: bool = False) -> bool:
+        """Clear items from the cart for a given session. If keep_user_items is True, only AI-added items are removed."""
+        if keep_user_items:
+            session = self.get_session(user_id, session_id)
+            if not session:
+                return False
+            cart_items = session.get("cart_items", [])
+            new_cart = [item for item in cart_items if item.get("added_by") == "user"]
+            return self.update_cart_items(user_id, session_id, new_cart)
+        else:
+            return self.update_cart_items(user_id, session_id, [])
 
     # ==================================================================
     # MESSAGES
@@ -347,6 +383,8 @@ class DynamoService:
         role: str,
         content: str,
         products: Optional[List] = None,
+        msg_type: Optional[str] = None,
+        event_metadata: Optional[Dict] = None
     ) -> Dict:
         """Save a chat message."""
         now = self._now()
@@ -357,6 +395,10 @@ class DynamoService:
             "content": content,
             "timestamp": now,
         }
+        if msg_type:
+            item["type"] = msg_type
+        if event_metadata:
+            item.update(event_metadata)
         if products:
             # Store minimal product info for history
             item["products"] = self._float_to_decimal([
@@ -387,6 +429,12 @@ class DynamoService:
                     "content": item["content"],
                     "timestamp": item.get("timestamp", ""),
                 }
+                if "type" in item:
+                    msg["type"] = item["type"]
+                if "event_type" in item:
+                    msg["event_type"] = item["event_type"]
+                if "cart_version" in item:
+                    msg["cart_version"] = item["cart_version"]
                 if "products" in item:
                     msg["products"] = self._convert_decimals(item["products"])
                 messages.append(msg)

@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
-import { ShoppingCart, X, Plus, Minus, Trash2 } from 'lucide-react';
+import { ShoppingCart, X, Plus, Minus, Trash2, Bot } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 interface CartPanelProps {
   sessionId: string | null;
   cartItems: any[];
   setCartItems: (items: any[]) => void;
+  cartWorkspace?: any;
 }
 
-export default function CartPanel({ sessionId, cartItems, setCartItems }: CartPanelProps) {
+export default function CartPanel({ sessionId, cartItems, setCartItems, cartWorkspace }: CartPanelProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const { authFetch } = useAuth();
 
@@ -103,9 +104,27 @@ export default function CartPanel({ sessionId, cartItems, setCartItems }: CartPa
 
       {/* Expanded Content */}
       <div className={`flex-1 flex flex-col overflow-hidden transition-opacity duration-300 ${isExpanded ? 'opacity-100' : 'opacity-0'}`}>
-        <div className="flex-1 overflow-y-auto p-6 space-y-4 scrollbar-custom bg-bg-primary">
+        
+        {/* AI Cart Summary */}
+        {cartWorkspace?.created_by_ai && cartWorkspace?.status === 'active' && (
+          <div className="bg-bg-secondary p-4 m-4 rounded-xl border border-accent/30 shrink-0">
+            <h3 className="text-sm font-bold text-accent-light mb-1">
+              {cartWorkspace.cart_context ? `${cartWorkspace.cart_context} Cart` : 'AI Planned Cart'}
+            </h3>
+            {cartWorkspace.update_reason && (
+              <p className="text-xs text-text-muted mb-2">{cartWorkspace.update_reason}</p>
+            )}
+            {cartWorkspace.consultation_snapshot?.budget && (
+              <div className="text-[10px] bg-bg-card px-2 py-1 rounded inline-block text-success">
+                Budget: ${cartWorkspace.consultation_snapshot.budget}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-4 scrollbar-custom bg-bg-primary">
           {cartItems.map((item) => (
-            <div key={item.product_id} className="flex items-center gap-4 bg-bg-card p-3 rounded-lg border border-border-light">
+            <div key={item.product_id} className={`flex items-center gap-4 bg-bg-card p-3 rounded-lg border ${item.added_by === 'ai' ? 'border-accent/50 bg-accent/5' : 'border-border-light'}`}>
               {item.image ? (
                 <img src={item.image} alt={item.title} className="w-16 h-16 object-contain rounded bg-white p-1" />
               ) : (
@@ -115,6 +134,11 @@ export default function CartPanel({ sessionId, cartItems, setCartItems }: CartPa
               <div className="flex-1 min-w-0">
                 <h4 className="text-sm font-semibold text-text-primary truncate">{item.title}</h4>
                 <div className="text-sm text-green-400 font-bold mt-1">${item.price}</div>
+                {item.added_by === 'ai' && item.added_reason && (
+                  <div className="text-[10px] text-accent-light mt-1 flex items-center gap-1">
+                    <Bot size={10} /> {item.added_reason}
+                  </div>
+                )}
               </div>
 
               <div className="flex flex-col items-end gap-2 shrink-0">

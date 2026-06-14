@@ -69,6 +69,8 @@ class CartItemSchema(BaseModel):
     image: Optional[str] = None
     added_at: Optional[str] = None
     source_context: Optional[str] = None
+    added_by: Literal["user", "ai"] = "user"
+    added_reason: Optional[str] = None
 
 class OrderItemSchema(BaseModel):
     product_id: str
@@ -110,6 +112,21 @@ class RecommendationWorkspace(BaseModel):
     generated_at: Optional[str] = None
     reason_for_generation: Optional[str] = None
 
+class CartWorkspace(BaseModel):
+    """Workspace to track AI cart metadata."""
+    cart_context_hash: str = ""
+    cart_context: Optional[str] = None
+    status: Literal["building", "active", "stale", "archived"] = "active"
+    version: int = 0
+    previous_version: int = 0
+    created_by_ai: bool = False
+    last_updated: Optional[str] = None
+    update_reason: Optional[str] = None
+    consultation_snapshot: dict = {}
+    manually_removed_asins: List[str] = []
+    manually_added_asins: List[str] = []
+    category_targets: Dict[str, Any] = {}
+
 class ReviewFilterResult(BaseModel):
     approved_products: List[dict]
     rejected_products: List[dict]
@@ -138,6 +155,13 @@ class ConversationAgentOutput(BaseModel):
         "retrieve",
         "refresh",
         "invalidate"
+    ] = "none"
+    cart_action: Literal[
+        "none",
+        "create_cart",
+        "update_cart",
+        "clear_cart",
+        "remove_items"
     ] = "none"
     reason_for_action: str = ""
     search_query: Optional[str] = None
