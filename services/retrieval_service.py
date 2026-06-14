@@ -49,6 +49,7 @@ class ProductRetriever:
         self.id_mapping: List[Dict[str, Any]] = []         # index -> {parent_asin, title, price, main_category}
         self.catalog: Dict[str, Dict[str, Any]] = {}       # parent_asin -> full product dict
         self.metadata: Dict[str, Dict[str, Any]] = {}      # parent_asin -> metadata dict
+        self.reviews: Dict[str, List[Dict[str, Any]]] = {} # parent_asin -> list of review dicts
         self.details_cache = ProductDetailsCache()          # In-memory cache for fast modal loading
         self.model = None                                   # SentenceTransformer model (lazy loaded)
         self._loaded = False
@@ -146,6 +147,23 @@ class ProductRetriever:
                     }
                 })
             logger.info(f"Built ProductDetailsCache: {len(self.details_cache.cache)} entries")
+
+            # 6. Load raw product reviews (keyed by parent_asin for O(1) lookup)
+            reviews_path = os.path.join(DATA_DIR, "products_reviews", "products_reviews.json")
+            if os.path.exists(reviews_path):
+                try:
+                    with open(reviews_path, "r", encoding="utf-8") as f:
+                        reviews_raw = json.load(f)
+                    # Format: {"reviews": [{parent_asin, reviews: [...]}]}
+                    reviews_list = reviews_raw.get("reviews", [])
+                    if isinstance(reviews_list, list):
+                        for entry in reviews_list:
+                            asin = entry.get("parent_asin")
+                            if asin:
+                                self.reviews[asin] = entry.get("reviews", [])
+                    logger.info(f"Loaded product reviews: {len(self.reviews)} products")
+                except Exception as e:
+                    logger.warning(f"Could not load product reviews: {e}")
 
             # Pre-normalize embeddings for fast cosine similarity
             norms = np.linalg.norm(self.embeddings, axis=1, keepdims=True)
@@ -270,6 +288,10 @@ class ProductRetriever:
     def get_product_details_index(self, parent_asin: str) -> Optional[Dict[str, Any]]:
         """Get O(1) merged product details from the Cache."""
         return self.details_cache.get(parent_asin)
+
+    def get_product_reviews(self, parent_asin: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get raw review texts for a product. O(1) lookup."""
+        return self.reviews.get(parent_asin, [])[:limit]
 
     def get_categories(self) -> List[str]:
         """Get list of all unique main categories in the dataset."""

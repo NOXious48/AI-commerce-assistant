@@ -31,111 +31,110 @@ class CartRemoveRequest(BaseModel):
 class CartClearRequest(BaseModel):
     session_id: str
 
+from agents.workspace_manager import WorkspaceManager
+from agents.cart_agent import CartAgent
+
 @router.post("/cart/add")
 def add_to_cart(req: CartAddRequest, user: dict = Depends(get_current_user)):
     user_id = user["sub"]
-    session = dynamo_service.get_session(user_id, req.session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-        
-    cart_items = session.get("cart_items", [])
+    workspace_manager = WorkspaceManager(dynamo_service)
+    context = workspace_manager.load_context(user_id, req.session_id, [])
     
-    # Check if exists
-    found = False
-    for item in cart_items:
-        if item["product_id"] == req.product_id:
-            item["quantity"] += req.quantity
-            found = True
-            break
-            
-    if not found:
-        # Fetch metadata to populate cart item
-        product_meta = retriever.metadata.get(req.product_id) or retriever.catalog.get(req.product_id)
-        if not product_meta:
-            raise HTTPException(status_code=404, detail="Product not found")
-            
-        cart_items.append({
-            "product_id": req.product_id,
-            "title": product_meta.get("title", "Unknown Product"),
-            "price": product_meta.get("price", 0.0),
-            "quantity": req.quantity,
-            "image": product_meta.get("image_url", ""),
-            "added_at": datetime.now(timezone.utc).isoformat(),
-            "source_context": session.get("consultation_state", {}).get("goal", ""),
-            "added_by": "user",
-            "added_reason": "Manually added by user"
-        })
+    # Determine domain
+    domain = "general_shopping"
+    for d, ws in context.recommendation_workspaces.items():
+        if hasattr(ws, 'versions'):
+            for v in ws.versions.values():
+                for p in getattr(v, 'approved_products', []):
+                    if p.parent_asin == req.product_id:
+                        domain = d
+        else:
+            for p in getattr(ws, 'approved_products', []):
+                if p.parent_asin == req.product_id:
+                    domain = d
+                    
+    workspace_manager.ensure_domain(context, domain)
+    
+    # Add the product with the requested quantity
+    from agents.models import CartItem
+    cart_ws = context.cart_workspaces[domain]
+    existing = next((i for i in cart_ws.cart_items if i.parent_asin == req.product_id), None)
+    if existing:
+        existing.quantity += req.quantity
+    else:
+        new_item = CartItem(
+            parent_asin=req.product_id,
+            quantity=req.quantity,
+            added_by="user",
+            domain=domain,
+            category_target="",
+            added_reason="Added directly by user",
+            recommendation_version=0
+        )
+        cart_ws.cart_items.append(new_item)
+    
+    if req.product_id not in cart_ws.manually_added_items:
+        cart_ws.manually_added_items.append(req.product_id)
         
-    # Update manual adds in workspace
-    workspace = session.get("cart_workspace", {})
-    if req.product_id not in workspace.get("manually_added_asins", []):
-        if "manually_added_asins" not in workspace:
-            workspace["manually_added_asins"] = []
-        workspace["manually_added_asins"].append(req.product_id)
-        dynamo_service.update_cart_workspace(user_id, req.session_id, workspace)
-        
-    success = dynamo_service.update_cart_items(user_id, req.session_id, cart_items)
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to update cart")
-        
-    return {"message": "Added to cart", "cart_items": cart_items}
+    workspace_manager.persist_context(context)
+    
+    # Build enriched response for the frontend
+    cart_items_response = []
+    for item in cart_ws.cart_items:
+        item_dict = item.model_dump()
+        details = retriever.get_product_details_index(item.parent_asin)
+        if details:
+            item_dict.update(details.get("metadata", {}))
+        cart_items_response.append(item_dict)
+    
+    return {"message": "Added to cart", "cart_items": cart_items_response}
 
 @router.post("/cart/remove")
 def remove_from_cart(req: CartRemoveRequest, user: dict = Depends(get_current_user)):
     user_id = user["sub"]
-    session = dynamo_service.get_session(user_id, req.session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-        
-    cart_items = session.get("cart_items", [])
-    new_cart = []
+    workspace_manager = WorkspaceManager(dynamo_service)
+    context = workspace_manager.load_context(user_id, req.session_id, [])
     
-    for item in cart_items:
-        if item["product_id"] == req.product_id:
-            if not req.fully_remove and item["quantity"] > 1:
-                item["quantity"] -= 1
-                new_cart.append(item)
-        else:
-            new_cart.append(item)
-            
-    # Update manual removes in workspace if fully removed
-    if req.fully_remove:
-        workspace = session.get("cart_workspace", {})
-        if req.product_id not in workspace.get("manually_removed_asins", []):
-            if "manually_removed_asins" not in workspace:
-                workspace["manually_removed_asins"] = []
-            workspace["manually_removed_asins"].append(req.product_id)
-            dynamo_service.update_cart_workspace(user_id, req.session_id, workspace)
-            
-    success = dynamo_service.update_cart_items(user_id, req.session_id, new_cart)
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to update cart")
+    domain = "general_shopping"
+    for d, ws in context.cart_workspaces.items():
+        for i in getattr(ws, 'cart_items', []):
+            if getattr(i, 'parent_asin', '') == req.product_id:
+                domain = d
+                break
+                
+    workspace_manager.ensure_domain(context, domain)
+    cart_agent = CartAgent()
+    out = cart_agent.run(context, domain, requested_action="remove", requested_product=req.product_id, source="user")
+    
+    if out.cart_action == "remove":
+        context.cart_workspaces[domain].cart_items = out.cart_items
         
-    return {"message": "Cart updated", "cart_items": new_cart}
+    workspace_manager.persist_context(context)
+    
+    # Build enriched response
+    cart_items_response = []
+    for item in context.cart_workspaces[domain].cart_items:
+        item_dict = item.model_dump()
+        details = retriever.get_product_details_index(item.parent_asin)
+        if details:
+            item_dict.update(details.get("metadata", {}))
+        cart_items_response.append(item_dict)
+    
+    return {"message": "Cart updated", "cart_items": cart_items_response}
 
 @router.post("/cart/clear")
 def clear_cart(req: CartClearRequest, user: dict = Depends(get_current_user)):
     user_id = user["sub"]
-    session = dynamo_service.get_session(user_id, req.session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-        
-    # Full clear from UI
-    success = dynamo_service.clear_cart(user_id, req.session_id, keep_user_items=False)
+    workspace_manager = WorkspaceManager(dynamo_service)
+    context = workspace_manager.load_context(user_id, req.session_id, [])
     
-    # Archive workspace
-    workspace = session.get("cart_workspace", {})
-    if workspace:
-        workspace["previous_version"] = workspace.get("version", 0)
-        workspace["version"] = workspace.get("version", 0) + 1
-        workspace["status"] = "archived"
-        workspace["last_updated"] = datetime.now(timezone.utc).isoformat()
-        workspace["update_reason"] = "User explicitly cleared entire cart."
-        dynamo_service.update_cart_workspace(user_id, req.session_id, workspace)
-
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to clear cart")
-        
+    cart_agent = CartAgent()
+    for domain in list(context.cart_workspaces.keys()):
+        out = cart_agent.run(context, domain, requested_action="clear", source="user")
+        if out.cart_action == "clear":
+            context.cart_workspaces[domain].cart_items = out.cart_items
+            
+    workspace_manager.persist_context(context)
     return {"message": "Cart cleared", "cart_items": []}
 
 @router.get("/products/{parent_asin}/details")

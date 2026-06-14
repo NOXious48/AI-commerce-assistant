@@ -178,6 +178,12 @@ class DynamoService:
             "last_retrieved_products": [],
             "recommendation_workspace": {},
             "cart_workspace": {},
+            "search_workspace": {},
+            "planning_workspace": {"domains": {}},
+            "product_interactions": {"clicked": [], "saved": [], "compared": []},
+            "shopping_profile": {},
+            "execution_audit_trail": [],
+            "action_history": [],
             "cart_items": []
         }
         self.sessions_table.put_item(Item=item)
@@ -202,6 +208,12 @@ class DynamoService:
                 "manually_added_asins": [],
                 "manually_removed_asins": []
             },
+            "search_workspace": {},
+            "planning_workspace": {"domains": {}},
+            "product_interactions": {"clicked": [], "saved": [], "compared": []},
+            "shopping_profile": {},
+            "execution_audit_trail": [],
+            "action_history": [],
             "cart_items": []
         }
 
@@ -247,6 +259,14 @@ class DynamoService:
                     "active_domains": item.get("active_domains", ["general"]),
                     "recommendation_workspaces": item.get("recommendation_workspaces", {}),
                     "cart_workspaces": item.get("cart_workspaces", {}),
+                    "search_workspace": item.get("search_workspace", {}),
+                    "planning_workspace": item.get("planning_workspace", {"domains": {}}),
+                    "product_interactions": item.get("product_interactions", {"clicked": [], "saved": [], "compared": []}),
+                    "shopping_profile": item.get("shopping_profile", {}),
+                    "execution_audit_trail": item.get("execution_audit_trail", []),
+                    "action_history": item.get("action_history", []),
+                    "recently_viewed_products": item.get("recently_viewed_products", []),
+                    "comparison_workspace": item.get("comparison_workspace", {})
                 }
             return None
         except ClientError:
@@ -290,12 +310,28 @@ class DynamoService:
                                         active_domains = :ad,
                                         recommendation_workspaces = :rw,
                                         cart_workspaces = :cw,
+                                        search_workspace = :sw,
+                                        planning_workspace = :pw,
+                                        product_interactions = :pi,
+                                        shopping_profile = :sp,
+                                        execution_audit_trail = :ea,
+                                        action_history = :ah,
+                                        recently_viewed_products = :rv,
+                                        comparison_workspace = :cw_comp,
                                         updated_at = :u""",
                 ExpressionAttributeValues={
                     ":cs": workspaces.get("consultation_state", {}),
                     ":ad": workspaces.get("active_domains", ["general"]),
                     ":rw": workspaces.get("recommendation_workspaces", {}),
                     ":cw": workspaces.get("cart_workspaces", {}),
+                    ":sw": workspaces.get("search_workspace", {}),
+                    ":pw": workspaces.get("planning_workspace", {"domains": {}}),
+                    ":pi": workspaces.get("product_interactions", {"clicked": [], "saved": [], "compared": []}),
+                    ":sp": workspaces.get("shopping_profile", {}),
+                    ":ea": workspaces.get("execution_audit_trail", []),
+                    ":ah": workspaces.get("action_history", []),
+                    ":rv": workspaces.get("recently_viewed_products", []),
+                    ":cw_comp": workspaces.get("comparison_workspace", {}),
                     ":u": self._now(),
                 },
             )

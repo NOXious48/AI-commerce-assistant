@@ -16,28 +16,43 @@ class CartPlanner:
         """
         Creates category targets for the cart design.
         """
-        if domain not in context.recommendation_workspaces:
+        import copy
+        from agents.models import CategoryTarget
+
+        if domain not in context.planning_workspace:
             return CartPlannerOutput()
             
-        rec_context = context.recommendation_workspaces[domain].recommendation_context
-        event = rec_context.goal
+        plan = context.planning_workspace[domain]
+        event = plan.event
         
         if not event or event == "General Shopping":
             return CartPlannerOutput()
             
+        budget = plan.assumptions.get("budget", "moderate")
+        people_count = plan.assumptions.get("people_count", 1)
+        strategy = plan.strategy
+            
         prompt = f"""
         You are the Cart Planner for an AI Shopping Assistant.
         The user is planning for the following event/goal: "{event}".
-        Budget preference: {rec_context.budget}
-        People count: {rec_context.people_count}
+        Strategy: {strategy}
+        Budget preference: {budget}
+        People count: {people_count}
         
         Determine the logical category targets for a shopping cart. 
         Keep categories generic and broad (e.g. "snacks", "drinks", "decorations", "electronics").
+        You must also allocate a "budget_share" for each category (a float between 0.0 and 1.0 representing the percentage of total budget). The total budget_share must sum to 1.0.
+        Provide a suggested quantity for each category slot based on the people_count and strategy.
         
         Return ONLY a valid JSON object matching this schema:
         {{
-            "required_categories": ["string"],
-            "optional_categories": ["string"]
+            "category_targets": [
+                {{
+                    "category": "string",
+                    "quantity": 1,
+                    "budget_share": 0.5
+                }}
+            ]
         }}
         """
         
@@ -53,10 +68,15 @@ class CartPlanner:
             )
             result = json.loads(response.text)
             
-            return CartPlannerOutput(
-                required_categories=result.get("required_categories", []),
-                optional_categories=result.get("optional_categories", [])
-            )
+            targets = []
+            for t in result.get("category_targets", []):
+                targets.append(CategoryTarget(
+                    category=t.get("category", ""),
+                    quantity=t.get("quantity", 1),
+                    budget_share=t.get("budget_share", 0.0)
+                ))
+            
+            return CartPlannerOutput(category_targets=targets)
             
         except Exception as e:
             logger.error(f"CartPlanner failed: {e}")

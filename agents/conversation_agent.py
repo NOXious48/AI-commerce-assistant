@@ -14,18 +14,25 @@ class ConversationAgent:
     It explains actions, extracts state, detects goals, and answers questions.
     """
     
-    def run(self, context: AgentExecutionContext) -> ConversationAgentOutput:
+    def run(self, context: AgentExecutionContext, action_context: Dict[str, Any]) -> ConversationAgentOutput:
         messages = context.recent_messages[-5:]
         conversation_text = "\n".join([f"{msg.get('role', 'user')}: {msg.get('content', '')}" for msg in messages])
         
-        actions_taken = "\n".join([f"- {a}" for a in context.action_history])
-        if not actions_taken:
-            actions_taken = "- No background actions taken."
-            
+        # Safely serialize action_context (handle Decimal types from DynamoDB)
+        import decimal
+        def _default_serializer(obj):
+            if isinstance(obj, decimal.Decimal):
+                return float(obj) if obj % 1 else int(obj)
+            raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+        
+        action_context_str = json.dumps(action_context, indent=2, default=_default_serializer)
+        
         prompt = f"""
         CRITICAL OUTPUT RULE: Return ONLY a valid JSON object.
         
         You are an expert AI Shopping Consultant, Lifestyle Assistant, and Personal Shopping Advisor.
+        Your primary role is to CONSULT with the user — ask questions, understand their needs, 
+        and THEN help them find the right products.
         
         Recent Conversation:
         {conversation_text}
@@ -33,10 +40,8 @@ class ConversationAgent:
         Consultation State (Context):
         {context.consultation_state.model_dump_json()}
         
-        Active Domains: {context.active_domains}
-        
-        Background Actions Performed by the System just now:
-        {actions_taken}
+        Current Action Context (THIS IS THE LIVE SYSTEM STATE):
+        {action_context_str}
         
         YOUR RESPONSIBILITIES
 
@@ -50,13 +55,36 @@ class ConversationAgent:
 
         You ARE responsible for:
         - Understanding user intent
-        - Extracting preferences
+        - ASKING CLARIFYING QUESTIONS before recommending (budget? how many people? preferences? dietary needs? brands?)
+        - Extracting preferences from user answers
         - Extracting goals
-        - Updating consultation state
-        - Providing education
+        - Updating consultation state with gathered info
+        - Providing education about products
+        - Being conversational and consultative — NOT just listing products immediately
         - Answering questions
         - Explaining actions performed by other agents
         - Producing concise, natural responses
+        
+        ANTI-HALLUCINATION GUARDRAILS (CRITICAL):
+        1. Answer ONLY using the data provided in the "Current Action Context".
+        2. Do NOT hallucinate products, brands, prices, features, or reasons.
+        3. If the user asks about a product not in the Action Context or Recent Conversation, state that you don't have that information.
+        4. Explain recommendations and cart operations using ONLY the "recommendation_summary", "cart_summary", and "plan_summary".
+        5. Explain WHY a product was recommended using its exact "why_approved" field.
+        6. If "product_info_lookup" is provided in the Action Context, use that data to answer product questions in detail.
+        
+        CONSULTATION BEHAVIOR (CRITICAL):
+        1. When the user FIRST mentions a goal or event (movie night, birthday, camping or any event that requires planning):
+           - DO NOT immediately list products
+           - Ask only 1-2 SHORT, natural questions (e.g., "Sounds fun! How many people, and any snack preferences?")
+           - Be brief and conversational, not robotic
+        2. When the user provides answers to your questions:
+           - Acknowledge briefly ("Got it!")
+           - Say you'll put together a cart for them
+           - Update the state with their preferences
+        3. Only when products have ALREADY been retrieved (check "recommendation_summary" and "actions_taken"):
+           - Present them conversationally, mentioning top picks
+           - Explain why they match the user's needs
         
         MULTI-DOMAIN RULE
         Users may pursue multiple goals simultaneously.

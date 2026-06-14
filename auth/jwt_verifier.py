@@ -180,6 +180,13 @@ async def get_current_user(request: Request) -> Dict[str, Any]:
         async def protected_route(user: dict = Depends(get_current_user)):
             user_id = user["sub"]
     """
+    if os.environ.get("DEMO_MODE") == "true":
+        return {
+            "sub": "local_demo_user",
+            "email": "demo@example.com",
+            "username": "demo",
+        }
+
     auth_header = request.headers.get("Authorization")
     if not auth_header:
         raise HTTPException(

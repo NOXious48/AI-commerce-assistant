@@ -93,3 +93,29 @@ async def unsave_product(
 ):
     """Remove a product from the user's saved list."""
     return dynamo_service.unsave_product(user["sub"], parent_asin)
+
+# ---------------------------------------------------------------------------
+# Comparison
+# ---------------------------------------------------------------------------
+
+class CompareProductRequest(BaseModel):
+    parent_asin: str
+
+@router.post("/compare")
+async def add_to_compare(req: CompareProductRequest, user: dict = Depends(get_current_user)):
+    """Add a product to comparison list (stored in memory for now)."""
+    user_id = user["sub"]
+    memory = dynamo_service.get_user_memory(user_id)
+    comparisons = memory.get("comparisons", [])
+    if req.parent_asin not in comparisons:
+        comparisons.append(req.parent_asin)
+        memory["comparisons"] = comparisons[-4:] # Keep last 4
+        dynamo_service.update_user_memory(user_id, memory)
+    return {"message": "Added to comparison", "comparisons": memory["comparisons"]}
+
+@router.get("/compare")
+async def get_comparisons(user: dict = Depends(get_current_user)):
+    """Get the user's current comparison list."""
+    user_id = user["sub"]
+    memory = dynamo_service.get_user_memory(user_id)
+    return {"comparisons": memory.get("comparisons", [])}

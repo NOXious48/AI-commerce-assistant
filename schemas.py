@@ -100,6 +100,23 @@ class ConsultationState(BaseModel):
     people_count: Optional[int] = None
     confidence_score: int = 0
 
+class SearchWorkspace(BaseModel):
+    last_query: Optional[str] = None
+    active_filters: Dict[str, Any] = {}
+    recent_searches: List[str] = []
+    search_history: List[str] = []
+
+class PlanningWorkspaceDomain(BaseModel):
+    status: Literal["active", "archived", "completed"] = "active"
+    created_at: Optional[str] = None
+    consultation_state: dict = {}
+
+class PlanningWorkspace(BaseModel):
+    domains: Dict[str, PlanningWorkspaceDomain] = {}
+
+class ComparisonWorkspace(BaseModel):
+    selected_products: List[str] = []
+
 class RecommendationWorkspace(BaseModel):
     """Versioned recommendation context stored in ChatSession."""
     context_hash: str = ""
@@ -111,6 +128,7 @@ class RecommendationWorkspace(BaseModel):
     version: int = 0
     generated_at: Optional[str] = None
     reason_for_generation: Optional[str] = None
+    comparison_workspace: ComparisonWorkspace = ComparisonWorkspace()
 
 class CartWorkspace(BaseModel):
     """Workspace to track AI cart metadata."""
@@ -126,6 +144,11 @@ class CartWorkspace(BaseModel):
     manually_removed_asins: List[str] = []
     manually_added_asins: List[str] = []
     category_targets: Dict[str, Any] = {}
+
+class ProductInteractions(BaseModel):
+    clicked: List[str] = []
+    saved: List[str] = []
+    compared: List[str] = []
 
 class ReviewFilterResult(BaseModel):
     approved_products: List[dict]

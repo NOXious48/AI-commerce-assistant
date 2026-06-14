@@ -24,6 +24,10 @@ class PlanningAgent:
         # We also pass the consultation state
         state_dump = context.consultation_state.model_dump_json()
         
+        import uuid
+        from datetime import datetime, timezone
+        from agents.models import ShoppingPlan
+
         prompt = f"""
         You are the Planning Agent for an AI Shopping Assistant.
         Analyze the conversation and the current consultation state to determine the user's shopping goal.
@@ -36,12 +40,18 @@ class PlanningAgent:
         
         Determine the primary shopping event or goal (e.g., "Movie Night", "Gaming Setup", "Weekly Groceries").
         If no clear event is stated, return "General Shopping".
+        Determine the overarching shopping strategy.
+        Determine any assumptions you are making (e.g., "people_count": 4, "budget": "moderate").
         
         Return ONLY a valid JSON object matching this schema:
         {{
-            "event": "string"
+            "event": "string",
+            "strategy": "string",
+            "assumptions": {{}}
         }}
         """
+        
+        now_iso = datetime.now(timezone.utc).isoformat()
         
         try:
             client = genai.Client(api_key=os.environ.get("GOOGLE_API_KEY_PLANNER"))
@@ -59,9 +69,24 @@ class PlanningAgent:
             if not event.strip():
                 event = "General Shopping"
                 
-            return PlanningAgentOutput(event=event)
+            plan = ShoppingPlan(
+                plan_id=str(uuid.uuid4()),
+                version=1,
+                domain=event.lower().replace(" ", "_"),
+                status="active",
+                event=event,
+                assumptions=result.get("assumptions", {}),
+                strategy=result.get("strategy", ""),
+                last_updated=now_iso
+            )
+                
+            return PlanningAgentOutput(shopping_plan=plan)
             
         except Exception as e:
             logger.error(f"PlanningAgent failed: {e}")
-            # Fallback
-            return PlanningAgentOutput(event="General Shopping")
+            plan = ShoppingPlan(
+                plan_id=str(uuid.uuid4()),
+                event="General Shopping",
+                last_updated=now_iso
+            )
+            return PlanningAgentOutput(shopping_plan=plan)

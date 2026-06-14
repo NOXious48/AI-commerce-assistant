@@ -1,5 +1,5 @@
 import logging
-from typing import List
+from typing import List, Any
 from agents.models import AgentExecutionContext, ReviewAgentOutput, ProductRecord
 
 logger = logging.getLogger(__name__)
@@ -16,29 +16,44 @@ class ReviewAgent:
         self.threshold = 60
         self.max_approved = 30
         
-    def run(self, context: AgentExecutionContext, domain: str, candidate_asins: List[str]) -> ReviewAgentOutput:
+    def run(self, context: AgentExecutionContext, domain: str, candidates: List[Any] = None) -> ReviewAgentOutput:
+        from agents.models import CandidateRecord
+        
         if domain not in context.recommendation_workspaces:
             return ReviewAgentOutput()
             
-        rec_context = context.recommendation_workspaces[domain].recommendation_context
-        user_memory = context.user_memory
-        consultation_state = context.consultation_state
+        rec_workspace = context.recommendation_workspaces[domain]
+        active_version_id = str(rec_workspace.active_version)
+        if active_version_id not in rec_workspace.versions:
+            return ReviewAgentOutput()
+            
+        active_version = rec_workspace.versions[active_version_id]
+        candidate_pool = candidates if candidates is not None else active_version.candidate_pool
+        constraints = active_version.constraint_snapshot
         
+        if not candidate_pool:
+            return ReviewAgentOutput()
+            
         approved = []
         rejected = []
         
-        avoided_brands = set(b.lower() for b in user_memory.get("avoided_brands", []) + consultation_state.avoided_brands)
-        favorite_brands = set(b.lower() for b in user_memory.get("favorite_brands", []) + consultation_state.favorite_brands)
-        dietary_prefs = set(d.lower() for d in user_memory.get("dietary_preferences", []) + consultation_state.dietary_preferences + rec_context.dietary_preferences)
+        negative_constraints = [c.lower() for c in constraints.get("negative_constraints", [])]
+        positive_constraints = [c.lower() for c in constraints.get("positive_constraints", [])]
+        preferred_brands = [b.lower() for b in constraints.get("preferred_brands", [])]
+        price_range = constraints.get("price_range", {})
+        min_price = price_range.get("min")
+        max_price = price_range.get("max")
         
-        target_budget_str = rec_context.budget or consultation_state.budget_preference
-        target_budget = self._parse_budget(target_budget_str)
+        # Diversity tracking
+        brand_counts = {}
 
-        for asin in candidate_asins:
+        for candidate in candidate_pool:
+            asin = candidate.asin
+            retrieval_score = candidate.retrieval_score
+            
             # Check cache/index
             details = self.retrieval_service.get_product_details_index(asin)
             if not details:
-                # If not cached, maybe skip or fetch full
                 continue
                 
             meta = details.get("metadata", {})
@@ -48,87 +63,100 @@ class ReviewAgent:
             price = meta.get("price", 0.0)
             category = meta.get("category") or ""
             
-            score = 50 # Base score
+            score = 50 + int(retrieval_score * 10) # Incorporate retrieval score
+            confidence = 50
             rejection_reasons = []
             approval_reasons = []
+            risk_flags = []
             is_rejected = False
             
-            # Hard Rejection: Brand
-            if brand and brand in avoided_brands:
-                is_rejected = True
-                rejection_reasons.append(f"Brand '{brand}' is in your avoided list.")
-                
-            # Dietary check (heuristic)
-            if dietary_prefs:
+            # Stage 1: Hard Rejection (Negative Constraints)
+            for neg in negative_constraints:
+                if neg in brand or neg in category.lower() or neg in meta.get("title", "").lower():
+                    is_rejected = True
+                    rejection_reasons.append(f"Contains excluded constraint: {neg}")
+                    
+            if not is_rejected and negative_constraints:
+                # Also check review negative highlights
                 neg_highlights = " ".join(reviews.get("negative_highlights", [])).lower()
-                for pref in dietary_prefs:
-                    if "gluten_free" in pref and "gluten" in neg_highlights:
+                for neg in negative_constraints:
+                    if neg in neg_highlights:
                         is_rejected = True
-                        rejection_reasons.append("Reviews indicate this may contain gluten.")
+                        rejection_reasons.append(f"Reviews indicate possible presence of {neg}")
                         break
+
+            # Stage 1: Budget Filtering
+            if price > 0:
+                if max_price is not None and price > max_price:
+                    is_rejected = True
+                    rejection_reasons.append(f"Price (${price}) exceeds max budget (${max_price})")
+                if min_price is not None and price < min_price:
+                    is_rejected = True
+                    rejection_reasons.append(f"Price (${price}) is below min budget (${min_price})")
                         
             if is_rejected:
                 rejected.append(ProductRecord(
                     parent_asin=asin,
                     category=category,
-                    rejection_reason=" ".join(rejection_reasons)
+                    rejection_reasons=rejection_reasons
                 ))
                 continue
                 
-            # Scoring
-            if brand and brand in favorite_brands:
+            # Stage 2: Scoring
+            if brand and brand in preferred_brands:
                 score += 15
-                approval_reasons.append("One of your favorite brands.")
+                confidence += 10
+                approval_reasons.append("One of your preferred brands.")
                 
-            if reviews.get("avg_rating", 0) >= 4.0:
+            for pos in positive_constraints:
+                if pos in meta.get("title", "").lower() or pos in category.lower():
+                    score += 10
+                    confidence += 5
+                    approval_reasons.append(f"Matches preference: {pos}")
+                
+            avg_rating = reviews.get("avg_rating", 0)
+            if avg_rating >= 4.0:
                 score += 15
+                confidence += 20
                 approval_reasons.append("Highly rated.")
-            elif reviews.get("avg_rating", 0) < 3.5:
+            elif avg_rating < 3.5:
                 score -= 15
+                risk_flags.append("Lower than average rating.")
                 
             if reviews.get("positive_ratio", 0) > 0.7:
                 score += 10
                 
-            # Budget scoring
-            if target_budget and price > 0:
-                if target_budget == "low" and price > 50:
-                    score -= 10
-                elif target_budget == "high" and price < 50:
-                    score -= 5
-                elif target_budget == "moderate":
-                    if 20 <= price <= 100:
-                        score += 10
-                        approval_reasons.append("Fits your budget.")
-                    elif price > 150:
-                        score -= 10
+            if price > 0 and max_price is not None and price <= max_price:
+                approval_reasons.append("Fits your budget.")
             
+            # Stage 3: Diversity Guard
+            if brand:
+                if brand_counts.get(brand, 0) >= 3:
+                    score -= 50 # Strongly penalize to enforce diversity
+                    risk_flags.append("Too many products from this brand already.")
+                
             if score >= self.threshold:
+                if brand:
+                    brand_counts[brand] = brand_counts.get(brand, 0) + 1
+                    
                 approved.append(ProductRecord(
                     parent_asin=asin,
                     category=category,
                     alignment_score=min(100, score),
-                    approval_reason=" ".join(approval_reasons) or "Good match for your request."
+                    confidence=min(100, confidence),
+                    approval_reasons=approval_reasons,
+                    risk_flags=risk_flags
                 ))
             else:
                 rejected.append(ProductRecord(
                     parent_asin=asin,
                     category=category,
-                    rejection_reason="Did not meet quality or preference thresholds."
+                    rejection_reasons=["Did not meet alignment thresholds."]
                 ))
                 
         # Sort approved by score
         approved.sort(key=lambda x: x.alignment_score, reverse=True)
         approved = approved[:self.max_approved]
         
-        logger.info(f"[ReviewAgent] Evaluated {len(candidate_asins)} products. Approved {len(approved)}, Rejected {len(rejected)}")
+        logger.info(f"[ReviewAgent] Evaluated {len(candidate_pool)} candidates. Approved {len(approved)}, Rejected {len(rejected)}")
         return ReviewAgentOutput(approved_products=approved, rejected_products=rejected)
-        
-    def _parse_budget(self, budget_str: str) -> str:
-        if not budget_str:
-            return ""
-        b = budget_str.lower()
-        if "cheap" in b or "low" in b or "under" in b:
-            return "low"
-        if "expensive" in b or "high" in b or "premium" in b:
-            return "high"
-        return "moderate"

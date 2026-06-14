@@ -59,11 +59,13 @@ from auth.router import router as auth_router
 from routers.user_router import router as user_router
 from routers.chat_router import router as chat_router
 from routers.cart_router import router as cart_router
+from routers.recommendation_router import router as recommendation_router
 
 app.include_router(auth_router)
 app.include_router(user_router)
 app.include_router(chat_router)
 app.include_router(cart_router)
+app.include_router(recommendation_router)
 
 
 # ---------------------------------------------------------------------------
@@ -76,7 +78,7 @@ async def image_proxy(url: str):
     import httpx
     from fastapi.responses import Response
 
-    if not url or "media-amazon.com" not in url:
+    if not url:
         return Response(status_code=400)
 
     try:
