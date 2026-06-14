@@ -42,3 +42,7 @@ AI_CONTEXT.md
 *.pdf
 *Tech_Context.pdf
 TECHNICAL_DESIGN.md
+# Agent logs/temp
+*.log
+_*.py
+Amazone_Clone_ReactJs/

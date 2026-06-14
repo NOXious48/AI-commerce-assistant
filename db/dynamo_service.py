@@ -244,10 +244,9 @@ class DynamoService:
                     "created_at": item.get("created_at", ""),
                     "updated_at": item.get("updated_at", ""),
                     "consultation_state": item.get("consultation_state", {}),
-                    "last_retrieved_products": item.get("last_retrieved_products", []),
-                    "recommendation_workspace": item.get("recommendation_workspace", {}),
-                    "cart_workspace": item.get("cart_workspace", {}),
-                    "cart_items": item.get("cart_items", [])
+                    "active_domains": item.get("active_domains", ["general"]),
+                    "recommendation_workspaces": item.get("recommendation_workspaces", {}),
+                    "cart_workspaces": item.get("cart_workspaces", {}),
                 }
             return None
         except ClientError:
@@ -278,6 +277,30 @@ class DynamoService:
             )
         except ClientError as e:
             logger.exception(f"Error updating consultation state")
+
+    def update_session_workspaces(self, user_id: str, session_id: str, workspaces: dict):
+        """Update the active domains and workspaces for a session."""
+        try:
+            self.sessions_table.update_item(
+                Key={
+                    "PK": f"USER#{user_id}",
+                    "SK": f"SESSION#{session_id}",
+                },
+                UpdateExpression="""SET consultation_state = :cs,
+                                        active_domains = :ad,
+                                        recommendation_workspaces = :rw,
+                                        cart_workspaces = :cw,
+                                        updated_at = :u""",
+                ExpressionAttributeValues={
+                    ":cs": workspaces.get("consultation_state", {}),
+                    ":ad": workspaces.get("active_domains", ["general"]),
+                    ":rw": workspaces.get("recommendation_workspaces", {}),
+                    ":cw": workspaces.get("cart_workspaces", {}),
+                    ":u": self._now(),
+                },
+            )
+        except ClientError as e:
+            logger.exception(f"Error updating session workspaces")
 
     def update_session_title(self, user_id: str, session_id: str, title: str):
         """Update a session's title."""

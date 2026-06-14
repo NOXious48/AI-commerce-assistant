@@ -20,8 +20,20 @@ from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) # Step back from services/
 DATA_DIR = os.path.join(BASE_DIR, "data")
+
+class ProductDetailsCache:
+    """Cache layer for instant retrieval of pre-assembled product details and reviews."""
+    def __init__(self):
+        self.cache: Dict[str, Dict[str, Any]] = {}
+        
+    def get(self, asin: str) -> Optional[Dict[str, Any]]:
+        return self.cache.get(asin)
+        
+    def set(self, asin: str, data: Dict[str, Any]):
+        self.cache[asin] = data
+
 
 
 class ProductRetriever:
@@ -37,7 +49,7 @@ class ProductRetriever:
         self.id_mapping: List[Dict[str, Any]] = []         # index -> {parent_asin, title, price, main_category}
         self.catalog: Dict[str, Dict[str, Any]] = {}       # parent_asin -> full product dict
         self.metadata: Dict[str, Dict[str, Any]] = {}      # parent_asin -> metadata dict
-        self.product_details_index: Dict[str, Dict[str, Any]] = {} # parent_asin -> merged details
+        self.details_cache = ProductDetailsCache()          # In-memory cache for fast modal loading
         self.model = None                                   # SentenceTransformer model (lazy loaded)
         self._loaded = False
 
@@ -101,12 +113,19 @@ class ProductRetriever:
                 logger.info(f"Loaded product metadata: {len(self.metadata)} entries")
                 
             # 5. Build Startup Product Details Index
-            from review_filter_agent import review_data_index
+            review_summaries = {}
+            summaries_path = os.path.join(DATA_DIR, "products_reviews", "review_summaries.json")
+            if os.path.exists(summaries_path):
+                try:
+                    with open(summaries_path, "r", encoding="utf-8") as f:
+                        review_summaries = json.load(f)
+                except Exception as e:
+                    logger.warning(f"Could not load review summaries: {e}")
+
             for asin, meta_entry in self.metadata.items():
-                review_summary = review_data_index.get_summary(asin)
+                review_summary = review_summaries.get(asin, {})
                 meta_inner = meta_entry.get("metadata", meta_entry)
-                
-                self.product_details_index[asin] = {
+                self.details_cache.set(asin, {
                     "metadata": {
                         "title": meta_inner.get("title", ""),
                         "brand": meta_inner.get("store", meta_inner.get("brand", "")),
@@ -125,8 +144,8 @@ class ProductRetriever:
                         "positive_highlights": review_summary.get("top_praises", []),
                         "negative_highlights": review_summary.get("top_complaints", []),
                     }
-                }
-            logger.info(f"Built product_details_index: {len(self.product_details_index)} entries")
+                })
+            logger.info(f"Built ProductDetailsCache: {len(self.details_cache.cache)} entries")
 
             # Pre-normalize embeddings for fast cosine similarity
             norms = np.linalg.norm(self.embeddings, axis=1, keepdims=True)
@@ -248,10 +267,9 @@ class ProductRetriever:
     def get_product_metadata(self, parent_asin: str) -> Optional[Dict[str, Any]]:
         """Get detailed metadata by ASIN."""
         return self.metadata.get(parent_asin)
-        
     def get_product_details_index(self, parent_asin: str) -> Optional[Dict[str, Any]]:
-        """Get O(1) merged product details (metadata + reviews)."""
-        return self.product_details_index.get(parent_asin)
+        """Get O(1) merged product details from the Cache."""
+        return self.details_cache.get(parent_asin)
 
     def get_categories(self) -> List[str]:
         """Get list of all unique main categories in the dataset."""

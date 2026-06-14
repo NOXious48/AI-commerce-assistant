@@ -7,8 +7,8 @@ from pydantic import BaseModel
 
 from auth.jwt_verifier import get_current_user
 from db.dynamo_service import DynamoService
-from retrieval import retriever
-from review_filter_agent import review_data_index
+from services.retrieval_service import retriever
+
 
 from google import genai
 from google.genai import types
