@@ -90,8 +90,8 @@ class WorkspaceManager:
             },
             "product_interactions": context.product_interactions,
             "shopping_profile": context.shopping_profile.model_dump(),
-            "execution_audit_trail": [a.model_dump() for a in context.execution_audit_trail],
-            "action_history": [a.model_dump() for a in context.action_history]
+            "execution_audit_trail": [a.model_dump() if hasattr(a, 'model_dump') else {"action": str(a)} for a in context.execution_audit_trail],
+            "action_history": [a.model_dump() if hasattr(a, 'model_dump') else {"action": str(a)} for a in context.action_history]
         }
         # Convert all floats to Decimal for DynamoDB
         import json

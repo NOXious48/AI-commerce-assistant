@@ -153,6 +153,16 @@ export default function ProductCard({ product, sessionId, domain, planId }: Prod
           <div className="text-xs text-gray-500 mb-3 truncate">
             {product.brand ? `Brand: ${product.brand}` : (product.store ? `Store: ${product.store}` : 'Amazon')}
           </div>
+
+          {/* Why Recommended Badge */}
+          {product.approval_reasons && product.approval_reasons.length > 0 && (
+            <div className="mb-2">
+              <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-green-50 text-green-700 border border-green-200 rounded-full px-2 py-0.5">
+                <Sparkles size={10} className="text-green-600" />
+                {product.approval_reasons[0]}
+              </span>
+            </div>
+          )}
         </div>
       </Link>
 

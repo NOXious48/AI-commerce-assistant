@@ -13,6 +13,7 @@ from agents.review_agent import ReviewAgent
 from agents.cart_agent import CartAgent
 from agents.conversation_agent import ConversationAgent
 from agents.action_context_builder import ActionContextBuilder
+from services.constraint_resolver import ConstraintResolver
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ class OrchestratorAgent:
         self.cart_agent = CartAgent()
         self.conversation_agent = ConversationAgent()
         self.action_context_builder = ActionContextBuilder(retrieval_service)
+        self.constraint_resolver = ConstraintResolver()
         
     def process_message(self, context: AgentExecutionContext, user_message: str) -> str:
         """Main entry point for processing a user turn."""
@@ -414,6 +416,20 @@ class OrchestratorAgent:
             return
 
         if rec_out.candidate_pool:
+            # Resolve constraints from consultation state + user memory
+            constraint_output = self.constraint_resolver.resolve(
+                context.consultation_state,
+                context.user_memory,
+                " ".join(target_categories)
+            )
+            constraint_snapshot = constraint_output.model_dump()
+            
+            # Store constraints in the active version so ReviewAgent can use them
+            ws = context.recommendation_workspaces[domain]
+            ver_str = str(ws.active_version)
+            if ver_str in ws.versions:
+                ws.versions[ver_str].constraint_snapshot = constraint_snapshot
+            
             rev_out = self.review_agent.run(context, domain, candidates=rec_out.candidate_pool)
             
             ws = context.recommendation_workspaces[domain]
