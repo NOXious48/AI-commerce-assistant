@@ -149,21 +149,24 @@ class ProductRetriever:
             logger.info(f"Built ProductDetailsCache: {len(self.details_cache.cache)} entries")
 
             # 6. Load raw product reviews (keyed by parent_asin for O(1) lookup)
-            reviews_path = os.path.join(DATA_DIR, "products_reviews", "products_reviews.json")
-            if os.path.exists(reviews_path):
-                try:
-                    with open(reviews_path, "r", encoding="utf-8") as f:
-                        reviews_raw = json.load(f)
-                    # Format: {"reviews": [{parent_asin, reviews: [...]}]}
-                    reviews_list = reviews_raw.get("reviews", [])
-                    if isinstance(reviews_list, list):
-                        for entry in reviews_list:
-                            asin = entry.get("parent_asin")
-                            if asin:
-                                self.reviews[asin] = entry.get("reviews", [])
-                    logger.info(f"Loaded product reviews: {len(self.reviews)} products")
-                except Exception as e:
-                    logger.warning(f"Could not load product reviews: {e}")
+            # Skip on memory-constrained servers (set SKIP_REVIEWS=true)
+            if os.environ.get("SKIP_REVIEWS", "false").lower() != "true":
+                reviews_path = os.path.join(DATA_DIR, "products_reviews", "products_reviews.json")
+                if os.path.exists(reviews_path):
+                    try:
+                        with open(reviews_path, "r", encoding="utf-8") as f:
+                            reviews_raw = json.load(f)
+                        reviews_list = reviews_raw.get("reviews", [])
+                        if isinstance(reviews_list, list):
+                            for entry in reviews_list:
+                                asin = entry.get("parent_asin")
+                                if asin:
+                                    self.reviews[asin] = entry.get("reviews", [])
+                        logger.info(f"Loaded product reviews: {len(self.reviews)} products")
+                    except Exception as e:
+                        logger.warning(f"Could not load product reviews: {e}")
+            else:
+                logger.info("Skipping product reviews (SKIP_REVIEWS=true)")
 
             # Pre-normalize embeddings for fast cosine similarity
             norms = np.linalg.norm(self.embeddings, axis=1, keepdims=True)
