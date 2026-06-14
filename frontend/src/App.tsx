@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import ForgotPassword from './pages/ForgotPassword';
+import Verify from './pages/Verify';
 import SavedProducts from './pages/SavedProducts';
 import Preferences from './pages/Preferences';
 
@@ -33,6 +34,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
+      <Route path="/verify" element={<Verify />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/" element={
         <ProtectedRoute>

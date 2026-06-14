@@ -205,70 +205,16 @@ async def _conversation_agent(message: str, state: dict, memory: dict, history: 
             elif p.get('features'):
                 context_lines.append(f"    Feature: {p['features'][0][:120]}")
 
-    full_system_prompt = SYSTEM_PROMPT + "\n\n" + "\n".join(context_lines)
-    
     try:
-        # --- ADK Agent Setup (ephemeral per-request) ---
-        agent = LlmAgent(
-            name="shopping_consultant",
-            model=model_name,
-            instruction=full_system_prompt,
-            output_key="agent_output",
-        )
-        
-        session_service = InMemorySessionService()
-        runner = Runner(
-            agent=agent,
-            app_name="shopping-consultant",
-            session_service=session_service,
-        )
-        
-        # --- Build ADK session with chat history ---
-        adk_session = await session_service.create_session(
-            app_name="shopping-consultant",
+        from services.gemini_client import generate_structured_output
+        validated_output = await generate_structured_output(
+            user_message=message,
             user_id=user_id,
             session_id=session_id,
+            context_lines=context_lines
         )
-        
-        # --- Execute ADK Agent ---
-        user_content = types.Content(
-            role="user",
-            parts=[types.Part.from_text(text=message)]
-        )
-        
-        final_text = ""
-        async for event in runner.run_async(
-            new_message=user_content,
-            user_id=user_id,
-            session_id=session_id,
-        ):
-            if event.is_final_response() and event.content and event.content.parts:
-                final_text = event.content.parts[0].text
-        
-        if not final_text:
-            raise ValueError("ADK returned empty response")
-        
-        # --- Validate output against ConversationAgentOutput ---
-        # Extract JSON block using regex if present
-        import re
-        json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', final_text, re.DOTALL)
-        if json_match:
-            cleaned_text = json_match.group(1).strip()
-        else:
-            cleaned_text = final_text.strip()
-        # Fix invalid JSON escapes (e.g. LLM outputs \Once instead of \\Once)
-        cleaned_text = re.sub(r'\\(?=[^"\\/bfnrtu])', r'\\\\', cleaned_text)
-        
-        try:
-            raw_output = json.loads(cleaned_text)
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to decode JSON. final_text was: {repr(final_text)}")
-            logger.error(f"cleaned_text was: {repr(cleaned_text)}")
-            raise e
-            
-        validated = ConversationAgentOutput.model_validate(raw_output)
-        logger.info(f"ADK Agent: intent={validated.intent}, action={validated.recommendation_action}, reason={validated.reason_for_action}")
-        return validated.model_dump()
+        logger.info(f"ADK Agent: intent={validated_output.intent}, action={validated_output.recommendation_action}, reason={validated_output.reason_for_action}")
+        return validated_output.model_dump()
         
     except Exception as e:
         logger.exception("Failed in _conversation_agent (ADK)")

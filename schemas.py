@@ -166,3 +166,15 @@ class ConversationAgentOutput(BaseModel):
     reason_for_action: str = ""
     search_query: Optional[str] = None
     updated_state: dict = {}
+
+    @classmethod
+    def fallback(cls) -> "ConversationAgentOutput":
+        return cls(
+            intent="general_conversation",
+            response="I'm having trouble processing that request right now. Please try again.",
+            recommendation_action="none",
+            cart_action="none",
+            reason_for_action="Fallback response after parsing failure",
+            search_query=None,
+            updated_state={}
+        )

@@ -13,6 +13,8 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   signup: (email: string, password: string, fullName: string) => Promise<void>;
+  verify: (email: string, code: string) => Promise<void>;
+  resendCode: (email: string) => Promise<void>;
   authFetch: (url: string, options?: RequestInit) => Promise<Response>;
 }
 
@@ -159,6 +161,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!res.ok) throw new Error(data.detail || 'Signup failed');
   };
 
+  const verify = async (email: string, code: string) => {
+    const res = await fetch('/api/auth/confirm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, code }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Verification failed');
+  };
+
+  const resendCode = async (email: string) => {
+    const res = await fetch('/api/auth/resend-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Failed to resend code');
+  };
+
   useEffect(() => {
     refreshTokens().finally(() => setIsLoading(false));
   }, []);
@@ -181,6 +203,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login,
       logout,
       signup,
+      verify,
+      resendCode,
       authFetch: fetchWithToken
     }}>
       {children}
