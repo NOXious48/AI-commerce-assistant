@@ -176,7 +176,7 @@ export default function ProductCard({ product, sessionId, domain, planId }: Prod
           <button 
             onClick={handleAddToCart}
             disabled={isAddingToCart}
-            className="flex-1 bg-yellow-400 hover:bg-yellow-500 text-black text-xs font-semibold py-2 rounded-full flex items-center justify-center gap-1 transition-colors disabled:opacity-70"
+            className="flex-1 bg-[#FFD814] hover:bg-[#F7CA00] text-[#0F1111] text-xs font-semibold py-2 rounded-full flex items-center justify-center gap-1 transition-colors disabled:opacity-70 border border-[#FCD200]"
           >
             {isAddingToCart ? <Loader2 size={14} className="animate-spin" /> : <ShoppingCart size={14} />} 
             {isAddingToCart ? 'Adding...' : 'Add to Cart'}
@@ -186,9 +186,9 @@ export default function ProductCard({ product, sessionId, domain, planId }: Prod
         <div className="flex gap-2">
           <button 
             onClick={handleAskAI}
-            className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white text-xs font-semibold py-2 rounded-full flex items-center justify-center gap-1 transition-colors shadow-sm"
+            className="flex-1 bg-[#131921] hover:bg-[#232f3e] text-white text-xs font-semibold py-2 rounded-full flex items-center justify-center gap-1 transition-colors shadow-sm"
           >
-            <Sparkles size={14} /> Ask AI
+            <Sparkles size={14} className="text-[#FF9900]" /> Ask AI
           </button>
         </div>
         
@@ -196,7 +196,7 @@ export default function ProductCard({ product, sessionId, domain, planId }: Prod
           <button 
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); addToCompareMutation.mutate(); }}
             disabled={isComparing}
-            className="flex-1 border border-gray-300 bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-medium py-1.5 rounded-full flex items-center justify-center gap-1 transition-colors disabled:opacity-70"
+            className="flex-1 border border-gray-300 bg-white hover:bg-gray-50 text-[#0F1111] text-xs font-medium py-1.5 rounded-full flex items-center justify-center gap-1 transition-colors disabled:opacity-70"
           >
             {isComparing ? <Loader2 size={12} className="animate-spin" /> : <GitCompare size={12} />} 
             {isComparing ? 'Comparing...' : 'Compare'}
@@ -204,7 +204,7 @@ export default function ProductCard({ product, sessionId, domain, planId }: Prod
 
           <button 
             onClick={handleAddToPlan}
-            className="flex-1 border border-gray-300 bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-medium py-1.5 rounded-full flex items-center justify-center gap-1 transition-colors"
+            className="flex-1 border border-gray-300 bg-white hover:bg-gray-50 text-[#0F1111] text-xs font-medium py-1.5 rounded-full flex items-center justify-center gap-1 transition-colors"
           >
             <Plus size={12} /> Add to Plan
           </button>

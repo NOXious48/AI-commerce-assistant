@@ -128,31 +128,33 @@ export default function AIAssistantDrawer() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping, isOpen, isHistoryOpen]);
 
-  // Loading Event Polling
+  // Loading Event — realistic progress simulation based on elapsed time
   useEffect(() => {
     let interval: any;
-    if (isTyping && sessionId) {
+    if (isTyping) {
       setLoadingStartTime(Date.now());
+      const steps = [
+        { time: 0, text: 'Understanding request...' },
+        { time: 1500, text: 'Finding products...' },
+        { time: 3500, text: 'Reviewing candidates...' },
+        { time: 5500, text: 'Updating plan...' },
+        { time: 8000, text: 'Generating response...' },
+        { time: 12000, text: 'Almost there...' },
+      ];
+      
       interval = setInterval(() => {
-        authFetch(`/api/chat/session/${sessionId}`)
-          .then(res => res.json())
-          .then(data => {
-            if (data.session?.execution_audit_trail?.length > 0) {
-              const latest = data.session.execution_audit_trail[data.session.execution_audit_trail.length - 1];
-              if (latest.event) setLoadingEvent(latest.event + "...");
-            }
-          }).catch(() => {});
-          
-        if (loadingStartTime && (Date.now() - loadingStartTime > 20000)) {
-           setLoadingEvent("Still working on your request...");
+        const elapsed = Date.now() - (loadingStartTime || Date.now());
+        const currentStep = [...steps].reverse().find(s => elapsed >= s.time);
+        if (currentStep) {
+          setLoadingEvent(currentStep.text);
         }
-      }, 2000);
+      }, 500);
     } else {
       setLoadingEvent('Understanding request...');
       setLoadingStartTime(null);
     }
     return () => clearInterval(interval);
-  }, [isTyping, sessionId, loadingStartTime]);
+  }, [isTyping, loadingStartTime]);
 
   const createSessionMutation = useMutation({
     mutationFn: async () => {
@@ -262,33 +264,35 @@ export default function AIAssistantDrawer() {
       <div className="fixed bottom-6 right-6 z-40">
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className={`flex items-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-full px-4 py-3 shadow-2xl hover:scale-105 transition-transform ${isOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+          className={`flex items-center gap-2 bg-[#131921] text-white rounded-full px-4 py-3 shadow-2xl hover:bg-[#232f3e] hover:scale-105 transition-all ${isOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
         >
-          <Sparkles size={20} />
-          <span className="font-bold">Ask AI Assistant</span>
+          <Sparkles size={20} className="text-[#FF9900]" />
+          <span className="font-bold text-sm">Ask Rufus</span>
         </button>
       </div>
 
       <div className={`fixed top-0 right-0 h-full w-[400px] bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-in-out flex flex-col ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}>
-        <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-4 text-white flex items-center justify-between shrink-0 relative z-20">
+        <div className="bg-[#131921] p-4 text-white flex items-center justify-between shrink-0 relative z-20">
           <div className="flex items-center gap-2">
-            <button onClick={() => setIsHistoryOpen(!isHistoryOpen)} className="p-1 hover:bg-white/20 rounded transition-colors mr-2">
-              <History size={20} />
+            <button onClick={() => setIsHistoryOpen(!isHistoryOpen)} className="p-1 hover:bg-white/10 rounded transition-colors mr-1">
+              <History size={18} className="text-gray-300" />
             </button>
-            <Sparkles size={24} />
+            <div className="w-8 h-8 bg-[#FF9900] rounded-full flex items-center justify-center">
+              <Sparkles size={16} className="text-white" />
+            </div>
             <div>
-              <h2 className="font-bold text-lg leading-tight">AI Assistant</h2>
-              <p className="text-xs text-blue-100">Powered by advanced shopping AI</p>
+              <h2 className="font-bold text-base leading-tight">Rufus</h2>
+              <p className="text-[11px] text-gray-400">Your AI shopping assistant</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             {isDevMode && (
-              <button onClick={() => setIsInspectorOpen(!isInspectorOpen)} className="p-1 hover:bg-white/20 rounded transition-colors text-xs font-mono">
+              <button onClick={() => setIsInspectorOpen(!isInspectorOpen)} className="p-1 hover:bg-white/10 rounded transition-colors text-[10px] font-mono text-gray-400">
                 DEV
               </button>
             )}
-            <button onClick={() => setIsOpen(false)} className="p-2 hover:bg-white/20 rounded-full transition-colors">
-              <X size={20} />
+            <button onClick={() => setIsOpen(false)} className="p-1.5 hover:bg-white/10 rounded-full transition-colors">
+              <X size={18} className="text-gray-300" />
             </button>
           </div>
         </div>
@@ -305,9 +309,9 @@ export default function AIAssistantDrawer() {
 
           {/* History & Plans Overlay */}
           <div className={`absolute inset-0 bg-white z-20 transform transition-transform duration-300 flex flex-col ${isHistoryOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-            <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
-              <h3 className="font-semibold text-gray-800">Shopping Sessions</h3>
-              <button onClick={() => createSessionMutation.mutate()} className="flex items-center gap-1 text-sm bg-blue-100 text-blue-700 px-3 py-1.5 rounded-full hover:bg-blue-200 transition-colors font-medium">
+            <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-[#f7f8fa]">
+              <h3 className="font-semibold text-[#0F1111]">Shopping Sessions</h3>
+              <button onClick={() => createSessionMutation.mutate()} className="flex items-center gap-1 text-sm bg-[#FFD814] text-[#0F1111] px-3 py-1.5 rounded-full hover:bg-[#F7CA00] transition-colors font-medium">
                 <Plus size={16} /> New Chat
               </button>
             </div>
@@ -321,10 +325,10 @@ export default function AIAssistantDrawer() {
                     <div 
                       key={p.domain}
                       onClick={() => setActiveDomain(p.domain)}
-                      className={`flex justify-between items-center text-sm p-2 rounded cursor-pointer ${activeDomain === p.domain ? 'bg-purple-50 text-purple-700 font-medium' : 'hover:bg-gray-50 text-gray-600'}`}
+                      className={`flex justify-between items-center text-sm p-2 rounded cursor-pointer ${activeDomain === p.domain ? 'bg-orange-50 text-[#C7511F] font-medium border border-orange-200' : 'hover:bg-gray-50 text-gray-600'}`}
                     >
                       <span className="capitalize">{p.domain.replace('_', ' ')}</span>
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full ${p.status === 'Completed' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>{p.status}</span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full ${p.status === 'Completed' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>{p.status}</span>
                     </div>
                   ))}
                 </div>
@@ -337,12 +341,12 @@ export default function AIAssistantDrawer() {
                 <div 
                   key={s.session_id}
                   onClick={() => { setSessionId(s.session_id); setIsHistoryOpen(false); }}
-                  className={`group flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors mb-1 ${sessionId === s.session_id ? 'bg-blue-50 border border-blue-200' : 'hover:bg-gray-100 border border-transparent'}`}
+                  className={`group flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors mb-1 ${sessionId === s.session_id ? 'bg-orange-50 border border-orange-200' : 'hover:bg-gray-100 border border-transparent'}`}
                 >
                   <div className="flex flex-col overflow-hidden w-full">
                     <div className="flex items-center gap-2">
-                      <MessageSquare size={16} className={sessionId === s.session_id ? 'text-blue-600' : 'text-gray-500'} />
-                      <span className={`truncate text-sm font-medium ${sessionId === s.session_id ? 'text-blue-800' : 'text-gray-700'}`}>{s.title || 'New Shopping Plan'}</span>
+                      <MessageSquare size={16} className={sessionId === s.session_id ? 'text-[#C7511F]' : 'text-gray-500'} />
+                      <span className={`truncate text-sm font-medium ${sessionId === s.session_id ? 'text-[#0F1111]' : 'text-gray-700'}`}>{s.title || 'New Shopping Plan'}</span>
                     </div>
                   </div>
                   <button onClick={(e) => { e.stopPropagation(); deleteSessionMutation.mutate(s.session_id); }} className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-all ml-2">
@@ -353,13 +357,13 @@ export default function AIAssistantDrawer() {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[#f7f8fa]">
             {messages.map((m, i) => (
               <div key={i} className={`flex gap-3 ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-white shadow-sm ${m.role === 'assistant' ? 'bg-gradient-to-br from-blue-500 to-purple-500' : 'bg-gray-400'}`}>
-                  {m.role === 'assistant' ? <Bot size={16} /> : <User size={16} />}
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 shadow-sm ${m.role === 'assistant' ? 'bg-[#131921] text-[#FF9900]' : 'bg-[#232f3e] text-white'}`}>
+                  {m.role === 'assistant' ? <Bot size={14} /> : <User size={14} />}
                 </div>
-                <div className={`max-w-[80%] p-3 text-sm shadow-sm ${m.role === 'assistant' ? 'bg-white rounded-2xl rounded-tl-sm text-gray-800 border border-gray-100' : 'bg-blue-600 rounded-2xl rounded-tr-sm text-white'}`}>
+                <div className={`max-w-[80%] p-3 text-sm shadow-sm ${m.role === 'assistant' ? 'bg-white rounded-2xl rounded-tl-sm text-[#0F1111] border border-gray-200' : 'bg-[#131921] rounded-2xl rounded-tr-sm text-white'}`}>
                   {m.role === 'assistant' ? <div dangerouslySetInnerHTML={{ __html: parseMarkdown(m.content || '') }} /> : <p>{m.content || ''}</p>}
                 </div>
               </div>
@@ -367,14 +371,14 @@ export default function AIAssistantDrawer() {
 
             {isTyping && (
               <div className="flex gap-3">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center shrink-0 text-white shadow-sm">
-                  <Bot size={16} />
+                <div className="w-7 h-7 rounded-full bg-[#131921] flex items-center justify-center shrink-0 text-[#FF9900] shadow-sm">
+                  <Bot size={14} />
                 </div>
-                <div className="bg-white border border-gray-100 shadow-sm rounded-2xl rounded-tl-sm p-4 flex flex-col gap-2 min-w-[150px]">
+                <div className="bg-white border border-gray-200 shadow-sm rounded-2xl rounded-tl-sm p-4 flex flex-col gap-2 min-w-[150px]">
                   <div className="flex items-center gap-1">
-                     <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                     <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                     <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                     <div className="w-1.5 h-1.5 bg-[#FF9900] rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                     <div className="w-1.5 h-1.5 bg-[#FF9900] rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                     <div className="w-1.5 h-1.5 bg-[#FF9900] rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
                   </div>
                   <span className="text-[10px] text-gray-500 font-medium uppercase tracking-wider flex items-center gap-1">
                     <Activity size={10} /> {loadingEvent}
@@ -385,18 +389,18 @@ export default function AIAssistantDrawer() {
             <div ref={messagesEndRef} />
           </div>
 
-          <div className="p-4 bg-white border-t border-gray-200 shrink-0">
+          <div className="p-3 bg-white border-t border-gray-200 shrink-0">
             <form onSubmit={handleSubmit} className="relative">
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Ask me anything..."
-                className="w-full bg-gray-100 border-none rounded-xl pl-4 pr-12 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none h-12 scrollbar-custom block"
+                className="w-full bg-[#f7f8fa] border border-gray-300 rounded-xl pl-4 pr-12 py-3 text-sm text-[#0F1111] focus:outline-none focus:ring-2 focus:ring-[#FF9900] focus:border-[#FF9900] resize-none h-12 scrollbar-custom block"
                 rows={1}
                 disabled={isTyping}
               />
-              <button type="submit" disabled={!input.trim() || isTyping} className="absolute right-1 top-1 bottom-1 w-10 flex items-center justify-center text-blue-600 disabled:opacity-50 hover:bg-blue-50 rounded-lg transition-colors">
+              <button type="submit" disabled={!input.trim() || isTyping} className="absolute right-1 top-1 bottom-1 w-10 flex items-center justify-center text-[#FF9900] disabled:opacity-40 hover:bg-orange-50 rounded-lg transition-colors">
                 <Send size={18} />
               </button>
             </form>
