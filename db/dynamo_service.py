@@ -177,16 +177,22 @@ class DynamoService:
             "consultation_state": {},
             "last_retrieved_products": [],
             "recommendation_workspace": {},
+            "cart_items": []
         }
         self.sessions_table.put_item(Item=item)
         logger.info(f"Created session {session_id} for user {user_id}")
         return {
             "session_id": session_id,
             "title": title,
-            "created_at": now,
-            "consultation_state": {},
-            "last_retrieved_products": [],
-            "recommendation_workspace": {}
+            "workspace": {
+                "context_hash": "",
+                "retrieved_products": [],
+                "approved_products": [],
+                "rejected_products": [],
+                "filtering_metadata": {},
+                "version": 0
+            },
+            "cart_items": []
         }
 
     def list_sessions(self, user_id: str) -> List[Dict]:
@@ -230,6 +236,7 @@ class DynamoService:
                     "consultation_state": item.get("consultation_state", {}),
                     "last_retrieved_products": item.get("last_retrieved_products", []),
                     "recommendation_workspace": item.get("recommendation_workspace", {}),
+                    "cart_items": item.get("cart_items", [])
                 }
             return None
         except ClientError:
@@ -292,28 +299,43 @@ class DynamoService:
         except ClientError:
             pass
 
-    def delete_session(self, user_id: str, session_id: str) -> Dict:
-        """Delete a session and its messages. Enforces ownership."""
-        # First verify ownership
-        session = self.get_session(user_id, session_id)
-        if not session:
-            return {"message": "Session not found"}
-
-        # Delete the session record
+    def delete_session(self, user_id: str, session_id: str) -> bool:
+        """Delete a chat session."""
         try:
             self.sessions_table.delete_item(
-                Key={
-                    "PK": f"USER#{user_id}",
-                    "SK": f"SESSION#{session_id}",
-                }
+                Key={"PK": f"USER#{user_id}", "SK": f"SESSION#{session_id}"}
             )
-        except ClientError:
-            pass
+            # Cascade delete all messages
+            self.delete_session_messages(session_id)
+            return True
+        except ClientError as e:
+            logger.exception(f"Error deleting session {session_id}")
+            return False
 
-        # Cascade delete all messages
-        self.delete_session_messages(session_id)
+    # ==================================================================
+    # CART OPERATIONS (Attached to ChatSession)
+    # ==================================================================
 
-        return {"message": "Session deleted"}
+    def update_cart_items(self, user_id: str, session_id: str, cart_items: List[Dict]) -> bool:
+        """Update the cart_items array for a given session."""
+        try:
+            self.sessions_table.update_item(
+                Key={"PK": f"USER#{user_id}", "SK": f"SESSION#{session_id}"},
+                UpdateExpression="SET cart_items = :c, updated_at = :u",
+                ExpressionAttributeValues={
+                    ":c": self._float_to_decimal(cart_items),
+                    ":u": self._now(),
+                },
+                ConditionExpression="attribute_exists(PK)"
+            )
+            return True
+        except ClientError as e:
+            logger.exception(f"Error updating cart for session {session_id}")
+            return False
+
+    def clear_cart(self, user_id: str, session_id: str) -> bool:
+        """Clear all items from the cart for a given session."""
+        return self.update_cart_items(user_id, session_id, [])
 
     # ==================================================================
     # MESSAGES

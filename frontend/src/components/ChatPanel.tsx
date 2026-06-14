@@ -8,6 +8,8 @@ interface ChatPanelProps {
   onSessionCreated: (id: string) => void;
   onProductsReceived: (products: any[]) => void;
   onStateReceived: (state: any) => void;
+  onMetricsReceived: (metrics: any) => void;
+  onCartReceived: (cartItems: any[]) => void;
   isTyping: boolean;
   setIsTyping: (t: boolean) => void;
 }
@@ -31,7 +33,7 @@ function parseMarkdown(text: string) {
   }
 }
 
-export default function ChatPanel({ sessionId, onSessionCreated, onProductsReceived, onStateReceived, isTyping, setIsTyping }: ChatPanelProps) {
+export default function ChatPanel({ sessionId, onSessionCreated, onProductsReceived, onStateReceived, onMetricsReceived, onCartReceived, isTyping, setIsTyping }: ChatPanelProps) {
   const { authFetch } = useAuth();
   const [messages, setMessages] = useState<any[]>([]);
   const [input, setInput] = useState('');
@@ -53,6 +55,8 @@ export default function ChatPanel({ sessionId, onSessionCreated, onProductsRecei
           }
           onProductsReceived(data.products || []);
           onStateReceived(data.state || {});
+          onMetricsReceived(data.filtering_metadata || {});
+          onCartReceived(data.cart_items || []);
         })
         .catch(err => console.error(err));
     } else {
@@ -62,6 +66,8 @@ export default function ChatPanel({ sessionId, onSessionCreated, onProductsRecei
       }]);
       onProductsReceived([]);
       onStateReceived({});
+      onMetricsReceived({});
+      onCartReceived([]);
     }
   }, [sessionId]);
 
@@ -98,6 +104,9 @@ export default function ChatPanel({ sessionId, onSessionCreated, onProductsRecei
       
       if (data.state) {
         onStateReceived(data.state);
+      }
+      if (data.filtering_metadata) {
+        onMetricsReceived(data.filtering_metadata);
       }
       setIsTyping(false);
     },

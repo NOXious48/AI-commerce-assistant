@@ -1,8 +1,13 @@
 """
 Chat Router — Chat Sessions and Messaging with Persistence
 ============================================================
-Handles chat with RAG + Gemini/Ollama, persists messages to DynamoDB.
-All endpoints protected. Identity from JWT sub only.
+Handles chat with RAG + Google ADK (Gemini 2.5 Flash).
+Persists messages to DynamoDB. All endpoints protected.
+Identity from JWT sub only.
+
+ADK is the REASONING LAYER ONLY.
+DynamoDB is the SOURCE OF TRUTH for all persistence.
+The Recommendation Agent is PURE PYTHON and the FINAL AUTHORITY.
 """
 
 import os
@@ -14,13 +19,21 @@ from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from decimal import Decimal
 
-import ollama
+# Google ADK — Agent framework
+from google.adk.agents import LlmAgent
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
+
+# Google GenAI — used only for memory extraction (utility, not agent)
+from google import genai
+from google.genai import types
+
 from fastapi import APIRouter, Depends, HTTPException, Body, status, BackgroundTasks
 from pydantic import BaseModel, Field
 
 from auth.jwt_verifier import get_current_user
 from db.dynamo_service import dynamo_service
-from schemas import ConsultationState, UserMemory
+from schemas import ConsultationState, UserMemory, ConversationAgentOutput
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +56,10 @@ class ChatMessage(BaseModel):
 def _get_retriever():
     from retrieval import retriever
     return retriever
+
+def _get_filter_agent():
+    from review_filter_agent import review_filter_agent
+    return review_filter_agent
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +84,7 @@ def _convert_decimals(obj):
     elif isinstance(obj, Decimal):
         if obj % 1 == 0:
             return int(obj)
-            return float(obj)
+        return float(obj)
     return obj
 
 
@@ -115,56 +132,141 @@ def _recommendation_agent(action: str, new_state: dict, workspace: dict) -> dict
     return {"action": "keep", "products": workspace.get("retrieved_products", [])}
 
 
-def _conversation_agent(message: str, state: dict, memory: dict, history: list, workspace_products: list) -> dict:
-    """Conversation Agent: Single LLM call for intent, state, response, action."""
+# ---------------------------------------------------------------------------
+# ADK Conversation Agent
+# ---------------------------------------------------------------------------
+
+def _build_workspace_summary(workspace: dict) -> dict:
+    """Build a lightweight workspace summary for context injection.
+    
+    Injects summary instead of full product payloads to reduce token usage.
+    """
+    products = workspace.get("approved_products", workspace.get("retrieved_products", []))
+    metrics = workspace.get("filtering_metadata", {})
+    summary = {
+        "active_domain": workspace.get("active_domain"),
+        "workspace_version": workspace.get("version", 0),
+        "products_count": len(products),
+        "top_products": [p.get("title", "") for p in products[:3]],
+    }
+    if metrics:
+        summary["filtering_metrics"] = metrics
+    return summary
+
+
+async def _conversation_agent(message: str, state: dict, memory: dict, history: list, workspace: dict, user_id: str, session_id: str) -> dict:
+    """Conversation Agent: Google ADK LlmAgent for reasoning.
+    
+    ADK is the REASONING LAYER ONLY.
+    - No persistence in ADK (DynamoDB is the source of truth)
+    - No memory storage in ADK (DynamoDB handles memory)
+    - Session is ephemeral (created per-request, discarded after)
+    
+    Uses cognito_sub as user_id and chat_session_id as session_id
+    for better debugging and observability.
+    """
     from chat_agent import SYSTEM_PROMPT
-    model_name = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
+    model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    
+    # --- Context Injection ---
+    # Load from DynamoDB and inject into system instruction
+    workspace_summary = _build_workspace_summary(workspace)
+    workspace_products = workspace.get("retrieved_products", [])
     
     context_lines = [
         f"USER MEMORY (Persistent Preferences):\n{json.dumps(_convert_decimals(memory), indent=2)}\n",
-        f"CURRENT CONSULTATION STATE:\n{json.dumps(_convert_decimals(state), indent=2)}\n"
+        f"CURRENT CONSULTATION STATE:\n{json.dumps(_convert_decimals(state), indent=2)}\n",
+        f"RECOMMENDATION WORKSPACE SUMMARY:\n{json.dumps(workspace_summary, indent=2)}\n",
     ]
     
+    # Include top products for LLM explanation (top 2-3 only)
+    workspace_products = workspace.get("approved_products", workspace_products)
     if workspace_products:
-        context_lines.append(f"RETRIEVED PRODUCTS ({len(workspace_products)} results):")
-        # LLM only needs to see top 10-15 to avoid massive context
+        context_lines.append(f"RETRIEVED PRODUCTS (top {min(15, len(workspace_products))} of {len(workspace_products)}):")
         for i, p in enumerate(workspace_products[:15], 1):
+            reasons = " ".join(p.get("approval_reasons", []))
             context_lines.append(
                 f"[{i}] {p.get('title','')} | ${p.get('price',0)} | {p.get('main_category','')} | "
-                f"Rating: {p.get('average_rating',0)}"
+                f"Rating: {p.get('average_rating',0)} | Alignment: {p.get('alignment_score', 'N/A')}"
             )
-            if p.get('features'):
+            if reasons:
+                context_lines.append(f"    Why approved: {reasons}")
+            elif p.get('features'):
                 context_lines.append(f"    Feature: {p['features'][0][:120]}")
 
     full_system_prompt = SYSTEM_PROMPT + "\n\n" + "\n".join(context_lines)
-
-    llm_messages = [{"role": "system", "content": full_system_prompt}]
-    for msg in history:
-        llm_messages.append({"role": msg["role"], "content": msg["content"]})
-    
-    llm_messages.append({"role": "user", "content": message})
     
     try:
-        response = ollama.chat(
+        # --- ADK Agent Setup (ephemeral per-request) ---
+        agent = LlmAgent(
+            name="shopping_consultant",
             model=model_name,
-            messages=llm_messages,
-            format="json"
+            instruction=full_system_prompt,
+            output_key="agent_output",
         )
-        content = response["message"]["content"]
-        return json.loads(content, parse_float=Decimal)
+        
+        session_service = InMemorySessionService()
+        runner = Runner(
+            agent=agent,
+            app_name="shopping-consultant",
+            session_service=session_service,
+        )
+        
+        # --- Build ADK session with chat history ---
+        adk_session = await session_service.create_session(
+            app_name="shopping-consultant",
+            user_id=user_id,
+            session_id=session_id,
+        )
+        
+        # --- Execute ADK Agent ---
+        user_content = types.Content(
+            role="user",
+            parts=[types.Part.from_text(text=message)]
+        )
+        
+        final_text = ""
+        async for event in runner.run_async(
+            new_message=user_content,
+            user_id=user_id,
+            session_id=session_id,
+        ):
+            if event.is_final_response() and event.content and event.content.parts:
+                final_text = event.content.parts[0].text
+        
+        if not final_text:
+            raise ValueError("ADK returned empty response")
+        
+        # --- Validate output against ConversationAgentOutput ---
+        # Strip markdown json block if present
+        cleaned_text = final_text.strip()
+        if cleaned_text.startswith("```json"):
+            cleaned_text = cleaned_text[7:]
+        elif cleaned_text.startswith("```"):
+            cleaned_text = cleaned_text[3:]
+        if cleaned_text.endswith("```"):
+            cleaned_text = cleaned_text[:-3]
+        cleaned_text = cleaned_text.strip()
+
+        raw_output = json.loads(cleaned_text)
+        validated = ConversationAgentOutput.model_validate(raw_output)
+        logger.info(f"ADK Agent: intent={validated.intent}, action={validated.recommendation_action}, reason={validated.reason_for_action}")
+        return validated.model_dump()
+        
     except Exception as e:
-        logger.exception("Failed in _conversation_agent")
+        logger.exception("Failed in _conversation_agent (ADK)")
         return {
             "intent": "general_conversation",
-            "response": "Sorry, I encountered an error generating a response.",
+            "response": "Sorry, I encountered an error generating a response. Please try again.",
             "recommendation_action": "none",
+            "reason_for_action": "Error fallback",
             "updated_state": state
         }
 
 
 def _extract_memory_background(user_id: str, messages: list):
-    """Background task to update long-term user memory."""
-    model_name = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
+    """Background task to update long-term user memory using Gemini."""
+    model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
     current_memory = dynamo_service.get_user_memory(user_id)
     
     chat_text = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
@@ -187,16 +289,20 @@ Return ONLY a valid JSON object matching this schema:
 }}
 """
     try:
-        response = ollama.chat(
+        client = genai.Client()
+        response = client.models.generate_content(
             model=model_name,
-            messages=[{"role": "user", "content": prompt}],
-            format="json"
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.3,
+            )
         )
-        new_memory = json.loads(response["message"]["content"], parse_float=Decimal)
+        new_memory = json.loads(response.text)
         dynamo_service.update_user_memory(user_id, new_memory)
         logger.info(f"Updated user memory for {user_id}")
     except Exception as e:
-        logger.exception("Failed to extract memory")
+        logger.exception("Failed to extract memory (Gemini)")
 
 
 # ---------------------------------------------------------------------------
@@ -233,8 +339,8 @@ async def chat(req: ChatMessage, background_tasks: BackgroundTasks, user: dict =
     workspace = session.get("recommendation_workspace", {})
     all_messages = dynamo_service.get_messages(session_id, limit=12)
 
-    # 4. CONVERSATION AGENT (Orchestrator) — single LLM call
-    decision = _conversation_agent(message, state, user_mem, all_messages, workspace.get("retrieved_products", []))
+    # 4. CONVERSATION AGENT (ADK) — single LlmAgent call
+    decision = await _conversation_agent(message, state, user_mem, all_messages, workspace, user_id, session_id)
     
     reply = decision.get("response", "I'm not sure how to answer that.")
     intent = decision.get("intent", "general_conversation")
@@ -244,13 +350,15 @@ async def chat(req: ChatMessage, background_tasks: BackgroundTasks, user: dict =
     search_query = decision.get("search_query", "")
 
     # 5. RECOMMENDATION AGENT — ONLY called when orchestrator requests it
-    safe_products = workspace.get("retrieved_products", [])  # default: keep existing
+    safe_products = workspace.get("approved_products", workspace.get("retrieved_products", []))  # default: keep existing
     
     if action != "none":
         rec_decision = _recommendation_agent(action, new_state, workspace)
         
         if rec_decision["action"] == "search" and search_query:
             retriever = _get_retriever()
+            filter_agent = _get_filter_agent()
+            
             # Retrieve Top 100 for internal workspace
             products = retriever.search(search_query, top_k=100, min_score=0.15)
             
@@ -270,20 +378,35 @@ async def chat(req: ChatMessage, background_tasks: BackgroundTasks, user: dict =
                     "rating_number": p.get("rating_number", 0),
                 })
                 
+            # Filter
+            chat_context = "\n".join([f"{m['role']}: {m['content']}" for m in all_messages])
+            filter_result = filter_agent.filter_products(
+                retrieved_products=sanitized,
+                consultation_state=new_state,
+                user_memory=user_mem,
+                conversation_summary=chat_context
+            )
+                
             workspace = {
                 "context_hash": rec_decision["hash"],
                 "active_domain": rec_decision.get("domain", new_state.get("event") or new_state.get("goal")),
                 "retrieved_products": sanitized,
+                "approved_products": filter_result.approved_products,
+                "rejected_products": filter_result.rejected_products,
+                "filtering_metadata": filter_result.metrics,
                 "version": workspace.get("version", 0) + 1,
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "reason_for_generation": reason
             }
-            safe_products = sanitized
+            safe_products = filter_result.approved_products
         elif rec_decision["action"] == "clear":
             workspace = {
                 "context_hash": "",
                 "active_domain": None,
                 "retrieved_products": [],
+                "approved_products": [],
+                "rejected_products": [],
+                "filtering_metadata": {},
                 "version": workspace.get("version", 0) + 1
             }
             safe_products = []
@@ -312,7 +435,8 @@ async def chat(req: ChatMessage, background_tasks: BackgroundTasks, user: dict =
         "state": _convert_decimals(new_state),
         "intent": intent,
         "recommendation_action": action,
-        "reason_for_action": reason
+        "reason_for_action": reason,
+        "filtering_metadata": workspace.get("filtering_metadata", {})
     }
 
 

@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Literal
 from enum import Enum
 
 class IntentType(str, Enum):
@@ -63,7 +63,12 @@ class ProfileSchema(BaseModel):
 
 class CartItemSchema(BaseModel):
     product_id: str
-    quantity: int
+    title: str
+    price: float
+    quantity: int = 1
+    image: Optional[str] = None
+    added_at: Optional[str] = None
+    source_context: Optional[str] = None
 
 class OrderItemSchema(BaseModel):
     product_id: str
@@ -98,9 +103,19 @@ class RecommendationWorkspace(BaseModel):
     context_hash: str = ""
     active_domain: Optional[str] = None    # "gaming_laptop", "movie_night_snacks"
     retrieved_products: List[dict] = []
+    approved_products: List[dict] = []
+    rejected_products: List[dict] = []
+    filtering_metadata: dict = {}
     version: int = 0
     generated_at: Optional[str] = None
     reason_for_generation: Optional[str] = None
+
+class ReviewFilterResult(BaseModel):
+    approved_products: List[dict]
+    rejected_products: List[dict]
+    filtering_reasons: Dict[str, List[str]]
+    approval_reasons: Dict[str, List[str]]
+    metrics: dict
 
 class UserMemory(BaseModel):
     dietary_preferences: List[str] = []
@@ -108,3 +123,22 @@ class UserMemory(BaseModel):
     favorite_brands: List[str] = []
     avoided_brands: List[str] = []
     other_preferences: List[str] = []
+
+
+class ConversationAgentOutput(BaseModel):
+    """Structured output schema for the ADK Conversation Agent.
+    
+    All ADK responses are validated against this model using
+    ConversationAgentOutput.model_validate() before being accepted.
+    """
+    intent: str = "general_conversation"
+    response: str = ""
+    recommendation_action: Literal[
+        "none",
+        "retrieve",
+        "refresh",
+        "invalidate"
+    ] = "none"
+    reason_for_action: str = ""
+    search_query: Optional[str] = None
+    updated_state: dict = {}

@@ -6,9 +6,11 @@ interface ProductPanelProps {
   products: any[];
   isLoading: boolean;
   consultationState?: any;
+  filteringMetadata?: any;
+  onProductClick?: (product: any) => void;
 }
 
-export default function ProductPanel({ products, isLoading, consultationState }: ProductPanelProps) {
+export default function ProductPanel({ products, isLoading, consultationState, filteringMetadata, onProductClick }: ProductPanelProps) {
   const hasState = consultationState && (consultationState.goal || consultationState.event || consultationState.budget || consultationState.preferred_brands?.length || consultationState.must_have_features?.length || consultationState.dietary_preferences?.length);
 
   // Group products by main_category
@@ -86,8 +88,16 @@ export default function ProductPanel({ products, isLoading, consultationState }:
           </div>
         ) : products.length > 0 ? (
           <div className="space-y-8">
-            <div className="text-xs text-text-muted mb-4 uppercase tracking-wider font-semibold">
-              Showing {products.length} relevant products
+            <div className="flex items-center justify-between mb-4">
+              <div className="text-xs text-text-muted uppercase tracking-wider font-semibold">
+                Showing {products.length} relevant products
+              </div>
+              {filteringMetadata?.retrieved_count && (
+                <div className="flex items-center gap-2 text-[10px] px-2 py-1 bg-green-500/10 text-green-400 rounded-md border border-green-500/20" title={`Retrieved: ${filteringMetadata.retrieved_count}\nApproved: ${filteringMetadata.approved_count}\nRejected: ${filteringMetadata.rejected_count}`}>
+                  <span>Quality Verified</span>
+                  <span className="opacity-75">({filteringMetadata.approved_count}/{filteringMetadata.retrieved_count} passed)</span>
+                </div>
+              )}
             </div>
             {Object.entries(groupedProducts).map(([category, catProducts]) => (
               <div key={category} className="space-y-4">
@@ -96,7 +106,9 @@ export default function ProductPanel({ products, isLoading, consultationState }:
                 </h2>
                 <div className="grid grid-cols-2 gap-4">
                   {catProducts.map((p, idx) => (
-                    <ProductCard key={`${p.parent_asin}-${idx}`} product={p} />
+                    <div key={`${p.parent_asin}-${idx}`} onClick={() => onProductClick?.(p)}>
+                      <ProductCard product={p} />
+                    </div>
                   ))}
                 </div>
               </div>
