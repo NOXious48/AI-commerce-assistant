@@ -76,7 +76,7 @@ class ConstraintResolver:
         }}
         """
         try:
-            client = genai.Client()
+            client = genai.Client(api_key=os.environ.get("GOOGLE_API_KEY") or os.environ.get("GOOGLE_API_KEY_ORCHESTRATOR"))
             response = client.models.generate_content(
                 model=self.model_name,
                 contents=prompt,
@@ -97,4 +97,24 @@ class ConstraintResolver:
             out.preferred_brands.extend(mem_fav_brands)
             out.negative_constraints.extend(avoid_brands)
             out.negative_constraints.extend(mem_avoid_brands)
+            
+            # Parse "no X" patterns from dietary preferences into negative constraints
+            for pref in (dietary + mem_dietary):
+                if isinstance(pref, str):
+                    pref_lower = pref.lower().strip()
+                    if pref_lower.startswith("no "):
+                        neg = pref_lower[3:].strip()
+                        if neg and neg not in out.negative_constraints:
+                            out.negative_constraints.append(neg)
+                            # Remove from positive
+                            if pref in out.positive_constraints:
+                                out.positive_constraints.remove(pref)
+            
+            # Parse budget from consultation state
+            if budget_str:
+                import re
+                match = re.search(r'\$?(\d+)', budget_str)
+                if match:
+                    out.price_range = {"max": float(match.group(1))}
+            
             return out

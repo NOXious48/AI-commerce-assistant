@@ -161,6 +161,21 @@ class OrchestratorAgent:
                 fallback = domain.replace('_', ' ') if domain != "general_shopping" else "products"
                 _add_hist(f"Retrieving recommendations for {fallback}")
                 self._run_recommendation_pipeline(context, domain, [fallback])
+            
+            # Auto-add top products to cart if we have approved products and cart is empty
+            cart_ws = context.cart_workspaces.get(domain)
+            if cart_ws and not cart_ws.cart_items:
+                ws = context.recommendation_workspaces[domain]
+                ver_str = str(ws.active_version)
+                if ver_str in ws.versions:
+                    approved = ws.versions[ver_str].approved_products
+                    if approved:
+                        # Add top 3-5 products to cart automatically
+                        for p in approved[:5]:
+                            cart_out = self.cart_agent.run(context, domain, requested_action="add", requested_product=p.parent_asin, source="ai")
+                            if cart_out.cart_action == "add":
+                                context.cart_workspaces[domain].cart_items = cart_out.cart_items
+                        _add_hist(f"Added top {min(5, len(approved))} recommended products to cart.")
                 
         # === ACTION: Plan Event / Create Cart ===
         elif action in ["plan_event", "create_cart"]:
@@ -197,6 +212,17 @@ class OrchestratorAgent:
             # If no categories were planned, use the event itself
             if not target_categories:
                 self._run_recommendation_pipeline(context, domain, [plan_out.shopping_plan.event] + enrichment_parts)
+            
+            # Merge all approved products from all versions into active version for cart picking
+            ws = context.recommendation_workspaces[domain]
+            all_approved = []
+            for ver_id, version in ws.versions.items():
+                for p in version.approved_products:
+                    if p not in all_approved:
+                        all_approved.append(p)
+            active_ver_str = str(ws.active_version)
+            if active_ver_str in ws.versions:
+                ws.versions[active_ver_str].approved_products = all_approved
             
             # Add best products to cart per category
             for cat in target_categories:
@@ -238,6 +264,76 @@ class OrchestratorAgent:
                 
         if conversation_out.goal_abandoned and conversation_out.abandoned_goal:
             self.workspace_manager.invalidate_domain(context, conversation_out.abandoned_goal)
+        
+        # POST-PROCESSING: Auto-trigger plan_event if user provided preferences
+        # but no retrieval happened yet (intent parser said "converse" but user gave enough info)
+        if action == "converse" and domain != "general_shopping":
+            # Check if this domain has NO products yet
+            ws = context.recommendation_workspaces.get(domain)
+            has_products = False
+            if ws:
+                ver_str = str(ws.active_version)
+                if ver_str in ws.versions and ws.versions[ver_str].approved_products:
+                    has_products = True
+            
+            # Check if the consultation state now has meaningful preferences
+            state = context.consultation_state
+            has_preferences = bool(state.budget_preference or state.dietary_preferences or state.favorite_brands)
+            
+            if not has_products and has_preferences:
+                # User gave preferences but we haven't retrieved yet — trigger the pipeline now
+                _add_hist("User provided preferences — triggering recommendation pipeline")
+                
+                # Run the full plan_event flow
+                plan_out = self.planning_agent.run(context)
+                context.planning_workspace[domain] = plan_out.shopping_plan
+                
+                ws = context.recommendation_workspaces[domain]
+                ver_str = str(ws.active_version)
+                if ver_str in ws.versions:
+                    ws.versions[ver_str].recommendation_context.goal = plan_out.shopping_plan.event
+                
+                cart_plan = self.cart_planner.run(context, domain)
+                target_categories = [t.category for t in getattr(cart_plan, 'category_targets', [])]
+                
+                # Enrich with user preferences
+                enrichment_parts = []
+                if state.dietary_preferences:
+                    enrichment_parts.append(" ".join(state.dietary_preferences))
+                if state.budget_preference:
+                    enrichment_parts.append(state.budget_preference)
+                
+                for cat in target_categories:
+                    search_terms = [plan_out.shopping_plan.event, cat] + enrichment_parts
+                    self._run_recommendation_pipeline(context, domain, search_terms)
+                
+                if not target_categories:
+                    self._run_recommendation_pipeline(context, domain, [plan_out.shopping_plan.event] + enrichment_parts)
+                
+                # Add to cart — use each retrieval's version
+                ws = context.recommendation_workspaces[domain]
+                # Each category retrieval created a new version, so we need to iterate
+                # Get all approved products across all versions for this domain
+                all_approved = []
+                for ver_id, version in ws.versions.items():
+                    for p in version.approved_products:
+                        if p not in all_approved:
+                            all_approved.append(p)
+                
+                # Temporarily set all approved into the active version for CartAgent to pick from
+                active_ver_str = str(ws.active_version)
+                if active_ver_str in ws.versions:
+                    ws.versions[active_ver_str].approved_products = all_approved
+                
+                for cat in target_categories:
+                    cart_out = self.cart_agent.run(context, domain, requested_action="add", requested_category=cat, source="ai")
+                    if cart_out.cart_action == "add":
+                        context.cart_workspaces[domain].cart_items = cart_out.cart_items
+                
+                _add_hist(f"Built cart with {len(context.cart_workspaces[domain].cart_items)} items")
+                
+                # Re-persist since we modified workspaces
+                self.workspace_manager.persist_context(context)
         
         # Enforce history caps
         if len(context.action_history) > 100:
@@ -540,6 +636,7 @@ ACTIONS (pick exactly one):
 CRITICAL RULES:
 1. If user asks for a NEW product category different from active domains:
    - action = "recommend", domain = NEW topic, replace_active_domain = OLD domain
+   - EXCEPTION: If user says "also", "as well", "in addition", "I also need" → do NOT replace. Leave replace_active_domain empty so both domains coexist.
 2. If user says "suggest", "recommend", "show me", "what do you have" → action = "recommend"
 3. If user asks "tell me more about X", "what are the features of X", "is X good?" → action = "product_info"
 4. If user says "remove the dog one" or "take out the expensive item" → action = "remove_from_cart", target_category = description

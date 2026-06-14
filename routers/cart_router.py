@@ -1,6 +1,7 @@
 import logging
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -17,6 +18,17 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["cart", "products"])
 dynamo_service = DynamoService()
+
+
+def _convert_decimals(obj):
+    """Recursively convert Decimal types to float/int."""
+    if isinstance(obj, list):
+        return [_convert_decimals(i) for i in obj]
+    elif isinstance(obj, dict):
+        return {k: _convert_decimals(v) for k, v in obj.items()}
+    elif isinstance(obj, Decimal):
+        return int(obj) if obj % 1 == 0 else float(obj)
+    return obj
 
 class CartAddRequest(BaseModel):
     session_id: str
@@ -87,7 +99,7 @@ def add_to_cart(req: CartAddRequest, user: dict = Depends(get_current_user)):
             item_dict.update(details.get("metadata", {}))
         cart_items_response.append(item_dict)
     
-    return {"message": "Added to cart", "cart_items": cart_items_response}
+    return {"message": "Added to cart", "cart_items": _convert_decimals(cart_items_response)}
 
 @router.post("/cart/remove")
 def remove_from_cart(req: CartRemoveRequest, user: dict = Depends(get_current_user)):
@@ -120,7 +132,7 @@ def remove_from_cart(req: CartRemoveRequest, user: dict = Depends(get_current_us
             item_dict.update(details.get("metadata", {}))
         cart_items_response.append(item_dict)
     
-    return {"message": "Cart updated", "cart_items": cart_items_response}
+    return {"message": "Cart updated", "cart_items": _convert_decimals(cart_items_response)}
 
 @router.post("/cart/clear")
 def clear_cart(req: CartClearRequest, user: dict = Depends(get_current_user)):

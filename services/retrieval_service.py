@@ -176,6 +176,9 @@ class ProductRetriever:
             self._loaded = True
             print(f"[OK] Retrieval system loaded: {self.embeddings.shape[0]} products, {self.embeddings.shape[1]}-dim embeddings")
 
+            # Pre-load the SentenceTransformer model at startup (avoids cold-start on first query)
+            self._get_model()
+
         except Exception as e:
             logger.exception(f"Failed to load retrieval data: {e}")
             print(f"[ERROR] Retrieval system failed to load: {e}")

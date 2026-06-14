@@ -85,13 +85,29 @@ class CartAgent:
                 
                 if not approved:
                     return CartAgentOutput(cart_action="none", missing_categories=[requested_category])
-                    
-                approved_for_cat = [p for p in approved if requested_category.lower() in p.category.lower() or not p.category]
+                
+                # Match by category field, title (via retrieval_query), or approval_reasons
+                cat_lower = requested_category.lower()
+                approved_for_cat = []
+                for p in approved:
+                    p_cat = (p.category or "").lower()
+                    p_query = (p.retrieval_query or "").lower()
+                    p_reasons = " ".join(p.approval_reasons).lower() if p.approval_reasons else ""
+                    if cat_lower in p_cat or cat_lower in p_query or cat_lower in p_reasons:
+                        approved_for_cat.append(p)
+                
                 if not approved_for_cat:
+                    # Broader fallback: just use the approved list sorted by score
                     approved_for_cat = approved
                     
-                # Rigid Skip Rule check
-                valid_candidates = [p for p in approved_for_cat if p.parent_asin not in cart_workspace.manually_removed_items]
+                # Rigid Skip Rule check — also exclude items already in cart
+                already_in_cart = [i.parent_asin for i in current_items]
+                valid_candidates = [p for p in approved_for_cat 
+                                   if p.parent_asin not in cart_workspace.manually_removed_items
+                                   and p.parent_asin not in already_in_cart]
+                if not valid_candidates:
+                    # Try without the already-in-cart filter
+                    valid_candidates = [p for p in approved_for_cat if p.parent_asin not in cart_workspace.manually_removed_items]
                 if not valid_candidates:
                     return CartAgentOutput(cart_action="none", cart_changes=[f"Skipped adding {requested_category} because all top recommendations were previously removed by user."])
                     

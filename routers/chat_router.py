@@ -241,8 +241,8 @@ async def chat(req: ChatMessage, background_tasks: BackgroundTasks, user: dict =
         "state": _convert_decimals(context.consultation_state.model_dump()),
         "active_domains": context.active_domains,
         "cart_items": _convert_decimals(cart_items),
-        "actions_taken": actions,
-        "execution_audit_trail": audit_trail
+        "actions_taken": _convert_decimals(actions),
+        "execution_audit_trail": _convert_decimals(audit_trail)
     }
     
     return response_data

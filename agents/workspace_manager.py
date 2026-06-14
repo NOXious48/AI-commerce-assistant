@@ -96,7 +96,13 @@ class WorkspaceManager:
         # Convert all floats to Decimal for DynamoDB
         import json
         from decimal import Decimal
-        update_data = json.loads(json.dumps(update_data), parse_float=Decimal)
+        
+        def _decimal_default(obj):
+            if isinstance(obj, Decimal):
+                return float(obj)
+            raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+        
+        update_data = json.loads(json.dumps(update_data, default=_decimal_default), parse_float=Decimal)
         
         self.db.update_session_workspaces(
             user_id=context.user_id,
