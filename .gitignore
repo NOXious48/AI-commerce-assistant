@@ -26,7 +26,6 @@ Thumbs.db
 *.swp
 
 # Datasets / Large Files
-*.npy
 *.csv
 products.json
 dataset_sample.json
