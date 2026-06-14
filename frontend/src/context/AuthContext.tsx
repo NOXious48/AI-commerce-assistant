@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import type { ReactNode } from 'react';
 
 interface User {
   sub: string;
@@ -21,13 +22,17 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
-  const [expiresAt, setExpiresAt] = useState<number | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true';
 
-  // Set tokens and decode user from idToken
+  const [user, setUser] = useState<User | null>(
+    isDemoMode ? { sub: 'local_demo_user', email: 'demo@example.com', name: 'Demo User' } : null
+  );
+  const [accessToken, setAccessToken] = useState<string | null>(isDemoMode ? 'demo_token' : null);
+  const [expiresAt, setExpiresAt] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState(!isDemoMode);
+
   const setTokens = (accToken: string, idToken: string, expiresIn: number) => {
+    if (isDemoMode) return;
     setAccessToken(accToken);
     setExpiresAt(Date.now() + expiresIn * 1000);
 
@@ -44,12 +49,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const clearTokens = () => {
+    if (isDemoMode) return;
     setAccessToken(null);
     setUser(null);
     setExpiresAt(null);
   };
 
   const refreshTokens = async (): Promise<boolean> => {
+    if (isDemoMode) return true;
     try {
       const res = await fetch('/api/auth/refresh', {
         method: 'POST',
@@ -68,31 +75,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Auth-aware fetch
-  const authFetch = async (url: string, options: RequestInit = {}): Promise<Response> => {
-    let currentToken = accessToken;
-    
-    // Refresh if expiring within 1 minute
-    if (!currentToken || (expiresAt && Date.now() > expiresAt - 60000)) {
-      const success = await refreshTokens();
-      if (!success) {
-        throw new Error('Not authenticated');
-      }
-      currentToken = accessToken; // Will be updated by refreshTokens but we can't await state update easily here
-      // Actually, refreshTokens updates state asynchronously, but authFetch needs the token immediately.
-      // So let's re-fetch the token directly here if needed, or just rely on the browser cookie if possible?
-      // Wait, we need to pass the Bearer token.
-      // We should return a Promise from refreshTokens that resolves to the new token.
-    }
-    
-    // Quick hack for currentToken since state update is async:
-    // If we just refreshed, `accessToken` state might be stale in this closure. 
-    // To fix properly:
-    return fetchWithToken(url, options);
-  };
-
   const fetchWithToken = async (url: string, options: RequestInit = {}) => {
-    // If we need to refresh, do it directly
+    if (isDemoMode) {
+      const headers = {
+        ...options.headers,
+        'Authorization': `Bearer demo_token`,
+      };
+      if (options.body && typeof options.body === 'string') {
+        (headers as any)['Content-Type'] = 'application/json';
+      }
+      return fetch(url, { ...options, headers, credentials: 'include' });
+    }
+
     if (!accessToken || (expiresAt && Date.now() > expiresAt - 60000)) {
       try {
         const res = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
@@ -125,14 +119,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (res.status === 401) {
       const success = await refreshTokens();
       if (success) {
-        // Will use new token on next render, but for this request we fail. 
-        // In a real app we'd queue requests and retry.
       }
     }
     return res;
   };
 
   const login = async (email: string, password: string) => {
+    if (isDemoMode) return;
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -145,13 +138,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
+    if (isDemoMode) return;
     try {
-      await authFetch('/api/auth/logout', { method: 'POST' });
+      await fetchWithToken('/api/auth/logout', { method: 'POST' });
     } catch (e) {}
     clearTokens();
   };
 
   const signup = async (email: string, password: string, fullName: string) => {
+    if (isDemoMode) return;
     const res = await fetch('/api/auth/signup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -162,6 +157,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const verify = async (email: string, code: string) => {
+    if (isDemoMode) return;
     const res = await fetch('/api/auth/confirm', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -172,6 +168,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const resendCode = async (email: string) => {
+    if (isDemoMode) return;
     const res = await fetch('/api/auth/resend-code', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -182,18 +179,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    refreshTokens().finally(() => setIsLoading(false));
-  }, []);
+    if (!isDemoMode) {
+      refreshTokens().finally(() => setIsLoading(false));
+    }
+  }, [isDemoMode]);
 
-  // Schedule refresh timeout
   useEffect(() => {
+    if (isDemoMode) return;
     if (!expiresAt) return;
     const timeUntilRefresh = Math.max((expiresAt - Date.now() - 300000), 5000);
     const timer = setTimeout(() => {
       refreshTokens();
     }, timeUntilRefresh);
     return () => clearTimeout(timer);
-  }, [expiresAt]);
+  }, [expiresAt, isDemoMode]);
 
   return (
     <AuthContext.Provider value={{

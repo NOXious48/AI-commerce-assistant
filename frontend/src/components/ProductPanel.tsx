@@ -99,13 +99,13 @@ export default function ProductPanel({ products, isLoading, consultationState, f
                 </div>
               )}
             </div>
-            {Object.entries(groupedProducts).map(([category, catProducts]) => (
+            {Object.entries(groupedProducts).map(([category, catProducts]: [string, any]) => (
               <div key={category} className="space-y-4">
                 <h2 className="text-sm font-bold text-text-primary uppercase tracking-wide border-b border-border-light pb-2">
                   {category}
                 </h2>
                 <div className="grid grid-cols-2 gap-4">
-                  {catProducts.map((p, idx) => (
+                  {catProducts.map((p: any, idx: number) => (
                     <div key={`${p.parent_asin}-${idx}`} onClick={() => onProductClick?.(p)}>
                       <ProductCard product={p} />
                     </div>

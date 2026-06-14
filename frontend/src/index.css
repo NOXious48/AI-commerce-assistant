@@ -4,7 +4,7 @@
 
 @layer base {
   body {
-    @apply bg-bg-primary text-text-primary h-screen overflow-hidden font-sans;
+    @apply bg-bg-primary text-text-primary min-h-screen overflow-x-hidden font-sans;
   }
 }
 

@@ -1,57 +1,37 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { AuthProvider, useAuth } from './context/AuthContext';
+import { AuthProvider } from './context/AuthContext';
+import { CartProvider } from './context/CartContext';
+import { PageContextProvider } from './context/PageContext';
 
-// Pages
-import Dashboard from './pages/Dashboard';
-import Login from './pages/Login';
-import Signup from './pages/Signup';
-import ForgotPassword from './pages/ForgotPassword';
-import Verify from './pages/Verify';
+// Pages & Components
+import Header from './components/Header';
+import Home from './pages/Home';
+import SearchPage from './pages/SearchPage';
+import ProductDetailPage from './pages/ProductDetailPage';
+import CartPage from './pages/CartPage';
 import SavedProducts from './pages/SavedProducts';
-import Preferences from './pages/Preferences';
+import AIAssistantDrawer from './components/AIAssistantDrawer';
+import CartPopup from './components/CartPopup';
 
 const queryClient = new QueryClient();
 
-// Protected Route Wrapper
-const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { isAuthenticated, isLoading } = useAuth();
-  
-  if (isLoading) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-bg-primary">
-        <div className="w-10 h-10 border-4 border-t-accent border-border-light rounded-full animate-spin"></div>
-      </div>
-    );
-  }
-  
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
-  return <>{children}</>;
-};
-
 function AppRoutes() {
   return (
-    <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route path="/signup" element={<Signup />} />
-      <Route path="/verify" element={<Verify />} />
-      <Route path="/forgot-password" element={<ForgotPassword />} />
-      <Route path="/" element={
-        <ProtectedRoute>
-          <Dashboard />
-        </ProtectedRoute>
-      } />
-      <Route path="/saved-products" element={
-        <ProtectedRoute>
-          <SavedProducts />
-        </ProtectedRoute>
-      } />
-      <Route path="/preferences" element={
-        <ProtectedRoute>
-          <Preferences />
-        </ProtectedRoute>
-      } />
-    </Routes>
+    <div className="min-h-screen bg-bg-primary text-text-primary flex flex-col relative">
+      <Header />
+      <CartPopup />
+      <main className="flex-1">
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/search" element={<SearchPage />} />
+          <Route path="/product/:asin" element={<ProductDetailPage />} />
+          <Route path="/cart" element={<CartPage />} />
+          <Route path="/saved-products" element={<SavedProducts />} />
+        </Routes>
+      </main>
+      <AIAssistantDrawer />
+    </div>
   );
 }
 
@@ -59,9 +39,13 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <Router>
-          <AppRoutes />
-        </Router>
+        <CartProvider>
+          <PageContextProvider>
+            <Router>
+              <AppRoutes />
+            </Router>
+          </PageContextProvider>
+        </CartProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

@@ -1,16 +1,27 @@
 import React, { useState } from 'react';
-import { Heart, ShoppingBag, Star } from 'lucide-react';
+import { Heart, Star, GitCompare, ShoppingCart, Sparkles, Plus, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useCart } from '../context/CartContext';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 
 interface ProductCardProps {
   product: any;
+  sessionId?: string; // For deep-linking
+  domain?: string;
+  planId?: string;
 }
 
-export default function ProductCard({ product }: ProductCardProps) {
+export default function ProductCard({ product, sessionId, domain, planId }: ProductCardProps) {
   const { authFetch } = useAuth();
+  const { addToCart } = useCart();
   const queryClient = useQueryClient();
-  const [isSaved, setIsSaved] = useState(false); // In real app, sync this with saved products list
+  const [isSaved, setIsSaved] = useState(false); 
+  
+  // Temporary States
+  const [isAddingToCart, setIsAddingToCart] = useState(false);
+  const [isComparing, setIsComparing] = useState(false);
+  const [quantity, setQuantity] = useState(1);
 
   const toggleSaveMutation = useMutation({
     mutationFn: async () => {
@@ -24,69 +35,179 @@ export default function ProductCard({ product }: ProductCardProps) {
       }
     },
     onMutate: () => {
-      setIsSaved(!isSaved); // Optimistic UI
+      setIsSaved(!isSaved); 
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['saved-products'] });
+    },
+    onError: () => {
+      setIsSaved(isSaved); // rollback
+      // Toast error should be shown here
     }
   });
 
+  const addToCompareMutation = useMutation({
+    mutationFn: async () => {
+      const res = await authFetch('/api/user/compare', { 
+        method: 'POST', 
+        body: JSON.stringify({ parent_asin: product.parent_asin }) 
+      });
+      if (!res.ok) throw new Error("Failed to add to compare");
+      return res.json();
+    },
+    onMutate: () => setIsComparing(true),
+    onSuccess: () => {
+      setIsComparing(false);
+      // Toast success
+    },
+    onError: () => {
+      setIsComparing(false);
+      // Toast error
+    }
+  });
+
+  const handleAddToCart = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsAddingToCart(true);
+    try {
+      await addToCart(product.parent_asin, quantity);
+    } finally {
+      setIsAddingToCart(false);
+    }
+  };
+
+  const handleAskAI = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    window.dispatchEvent(new CustomEvent('open-ai-drawer', { 
+      detail: { prompt: `Can you tell me more about ${product.title}?` } 
+    }));
+  };
+
+  const handleAddToPlan = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    window.dispatchEvent(new CustomEvent('open-ai-drawer', { 
+      detail: { prompt: `Add ${product.title} to my active plan.` } 
+    }));
+  };
+
   const renderStars = (rating: number) => {
     return (
-      <div className="flex items-center gap-1 text-star">
-        <Star size={12} fill="currentColor" />
-        <span className="text-xs font-medium text-text-primary">{rating.toFixed(1)}</span>
-        <span className="text-[10px] text-text-muted">({product.rating_number?.toLocaleString() || 0})</span>
+      <div className="flex items-center text-yellow-500">
+        {[...Array(5)].map((_, i) => (
+          <Star key={i} size={14} fill={i < Math.floor(rating) ? "currentColor" : "none"} strokeWidth={i < Math.floor(rating) ? 0 : 1} />
+        ))}
+        <span className="text-xs text-blue-500 ml-1 hover:underline cursor-pointer">{product.rating_number?.toLocaleString() || 0}</span>
       </div>
     );
   };
 
   const imageUrl = product.image_url ? `/api/image-proxy?url=${encodeURIComponent(product.image_url)}` : '';
+  
+  // Construct deep-link URL
+  let productUrl = `/product/${product.parent_asin}`;
+  const queryParams = new URLSearchParams();
+  if (sessionId) queryParams.append('session', sessionId);
+  if (domain) queryParams.append('domain', domain);
+  if (planId) queryParams.append('plan', planId);
+  if (queryParams.toString()) productUrl += `?${queryParams.toString()}`;
 
   return (
-    <div className="bg-bg-card rounded-2xl overflow-hidden border border-border-light hover:border-accent hover:shadow-[0_8px_30px_rgba(108,92,231,0.2)] transition-all duration-300 group cursor-pointer animate-fadeIn flex flex-col h-full">
-      <div className="relative h-48 bg-white p-4 flex items-center justify-center">
-        <button 
-          onClick={(e) => { e.stopPropagation(); toggleSaveMutation.mutate(); }}
-          className={`absolute top-2 left-2 p-2 rounded-full backdrop-blur-md transition-colors z-10
-            ${isSaved ? 'bg-red-500/20 text-red-500 hover:bg-red-500/30' : 'bg-black/40 text-white hover:bg-accent'}`}
-        >
-          <Heart size={16} fill={isSaved ? "currentColor" : "none"} />
-        </button>
-        <div className="absolute top-2 right-2 bg-accent text-white text-[10px] font-bold px-2 py-1 rounded-full z-10">
-          {(product.similarity_score * 100).toFixed(0)}% Match
-        </div>
-        
-        {imageUrl ? (
-          <img src={imageUrl} alt={product.title} className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-300" />
-        ) : (
-          <div className="text-text-muted">No Image</div>
-        )}
-      </div>
+    <div className="bg-white rounded p-4 flex flex-col h-full border border-gray-200 hover:shadow-lg transition-shadow relative group">
+      <button 
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleSaveMutation.mutate(); }}
+        className={`absolute top-2 left-2 p-1.5 bg-white/80 backdrop-blur-sm rounded-full z-10 transition-colors shadow-sm
+          ${isSaved ? 'text-red-500' : 'text-gray-400 hover:text-red-500'}`}
+      >
+        <Heart size={16} fill={isSaved ? "currentColor" : "none"} />
+      </button>
 
-      <div className="p-4 flex flex-col flex-1">
-        <div className="text-[10px] font-bold text-accent-light uppercase tracking-wider mb-1">
-          {product.main_category || 'Category'}
+      <Link to={productUrl} className="flex-1 flex flex-col">
+        <div className="h-48 flex items-center justify-center mb-4 relative overflow-hidden">
+          {imageUrl ? (
+            <img src={imageUrl} alt={product.title} className="max-w-full max-h-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform duration-300" />
+          ) : (
+            <div className="text-gray-400">No Image</div>
+          )}
         </div>
-        <h4 className="text-sm font-semibold text-text-primary line-clamp-2 leading-tight mb-2">
-          {product.title}
-        </h4>
-        
-        <div className="mt-auto">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-lg font-bold text-success">${product.price?.toFixed(2)}</span>
+
+        <div className="flex-1 flex flex-col">
+          <h4 className="text-sm text-gray-900 line-clamp-2 hover:text-orange-600 mb-1">
+            {product.title}
+          </h4>
+          
+          <div className="mb-1">
             {renderStars(product.average_rating || 0)}
           </div>
           
-          <div className="text-xs text-text-muted mb-3 truncate">
-            Sold by {product.store || 'Amazon'}
+          <div className="text-xl font-medium text-gray-900 mb-2">
+            <span className="text-sm font-normal align-top">$</span>
+            {Math.floor(product.price || 0)}
+            <span className="text-sm font-normal align-top">
+              {((product.price || 0) % 1).toFixed(2).substring(1)}
+            </span>
           </div>
 
-          <div className="flex gap-2">
-            <button className="flex-1 bg-bg-secondary hover:bg-sidebar-hover text-text-primary text-xs font-semibold py-2 rounded-lg transition-colors border border-border-light">
-              View Details
+          <div className="text-xs text-gray-500 mb-3 truncate">
+            {product.brand ? `Brand: ${product.brand}` : (product.store ? `Store: ${product.store}` : 'Amazon')}
+          </div>
+        </div>
+      </Link>
+
+      <div className="mt-auto pt-3 border-t border-gray-100 flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <div className="flex items-center border border-gray-300 rounded-full overflow-hidden" onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
+            <button
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setQuantity(q => Math.max(1, q - 1)); }}
+              className="px-2 py-1 text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors"
+            >
+              −
+            </button>
+            <span className="px-2 text-xs font-medium text-gray-800 min-w-[20px] text-center">{quantity}</span>
+            <button
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setQuantity(q => Math.min(10, q + 1)); }}
+              className="px-2 py-1 text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors"
+            >
+              +
             </button>
           </div>
+          <button 
+            onClick={handleAddToCart}
+            disabled={isAddingToCart}
+            className="flex-1 bg-yellow-400 hover:bg-yellow-500 text-black text-xs font-semibold py-2 rounded-full flex items-center justify-center gap-1 transition-colors disabled:opacity-70"
+          >
+            {isAddingToCart ? <Loader2 size={14} className="animate-spin" /> : <ShoppingCart size={14} />} 
+            {isAddingToCart ? 'Adding...' : 'Add to Cart'}
+          </button>
+        </div>
+        
+        <div className="flex gap-2">
+          <button 
+            onClick={handleAskAI}
+            className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white text-xs font-semibold py-2 rounded-full flex items-center justify-center gap-1 transition-colors shadow-sm"
+          >
+            <Sparkles size={14} /> Ask AI
+          </button>
+        </div>
+        
+        <div className="flex gap-2">
+          <button 
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); addToCompareMutation.mutate(); }}
+            disabled={isComparing}
+            className="flex-1 border border-gray-300 bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-medium py-1.5 rounded-full flex items-center justify-center gap-1 transition-colors disabled:opacity-70"
+          >
+            {isComparing ? <Loader2 size={12} className="animate-spin" /> : <GitCompare size={12} />} 
+            {isComparing ? 'Comparing...' : 'Compare'}
+          </button>
+
+          <button 
+            onClick={handleAddToPlan}
+            className="flex-1 border border-gray-300 bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-medium py-1.5 rounded-full flex items-center justify-center gap-1 transition-colors"
+          >
+            <Plus size={12} /> Add to Plan
+          </button>
         </div>
       </div>
     </div>
