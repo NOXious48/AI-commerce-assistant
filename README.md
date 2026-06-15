@@ -1,6 +1,25 @@
-# Amazon Hackon: AI Commerce Assistant 🛍️🤖
+# Amazon AI Commerce Assistant 🛒🤖
 
-A state-of-the-art, latency-optimized AI shopping consultant designed to revolutionize the e-commerce experience. Built with a modern **React SPA** frontend and a **FastAPI** backend, the assistant leverages **Google Gemini 2.5 Flash Lite** through the **Google ADK** (Agent Development Kit) framework to provide intelligent, contextual, and highly responsive shopping advice, event planning, and cart building capabilities.
+> **Amazon HackOn 2025 — Reimagining Urgent Shopping**
+
+---
+
+## 📋 Problem Statement
+
+**Amazon Now – Reimagining Urgent Shopping**
+
+Quick-commerce customers are fundamentally different from traditional e-commerce customers. They often arrive with an immediate need and expect to complete their purchase within seconds, yet today's shopping experiences still rely heavily on search, browsing, and manual decision-making.
+
+**How might we help customers discover, decide, and purchase what they need in the fastest and most effortless way possible?**
+
+---
+
+## 💡 Our Solution
+
+A next-generation AI shopping consultant (Rufus) that replaces the traditional "search → browse → decide → buy" loop with a **single natural language conversation**. The user tells the AI what they need, the system consults, retrieves, filters, and builds a curated cart — all in seconds.
+
+> *"I'm planning a movie night for 4 people, under $50, no nuts"*
+> → AI asks 1 question → builds a cart with chips, chocolate, drinks — all nut-free, within budget, with explainable reasons.
 
 ---
 
